@@ -89,7 +89,7 @@ The home retains two columns, colored type filters, bottom search and a compact 
 
 Italian is selected for an Italian primary device/app language; other primary languages use English. Existing content keeps its language.
 
-Before this release preparation, 40 JVM and 35 Android tests passed. The suite covers retrieval, captions, transcript overlap, queue ordering/serialization, migration, compression, EXIF, PDF extraction, URI grants, backup, complete sharing and UI languages. See `PUBLICATION_REVIEW.md` for candidate checks.
+Before this release preparation, 40 JVM and 35 Android tests passed. The suite covers retrieval, captions, transcript overlap, queue ordering/serialization, migration, compression, EXIF, PDF extraction, URI grants, backup, complete sharing and UI languages. The current source preparation also passed 40 JVM tests, debug assembly and lint. Release signing and device validation are separate checks before distributing an APK.
 
 Physical-device testing with installed weights is needed for Gemma quality/performance and GPU behavior. Exercise camera capture/cancel, recording, dictation fallback, long-document questions, relinking, charging/unplugging and background resume.
 
