@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider android:name="it.supermens.local.TestDocumentsProvider"
+            android:authorities="it.supermens.offline.test.documents"
+            android:exported="true" android:grantUriPermissions="true" />
+    </application>
+</manifest>

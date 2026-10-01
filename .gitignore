@@ -1,0 +1,39 @@
+# Local tooling and generated output
+.gradle/
+.kotlin/
+.idea/
+.DS_Store
+**/build/
+local.properties
+*.log
+tools/profiles/
+
+# Installation packages are distributed as GitHub Release assets.
+apk/
+*.apk
+*.aab
+
+# Never publish signing material, credentials, archives or model weights.
+.private-signing/
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.credentials.json
+*.litertlm
+*.tflite
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+
+# The app resource is the canonical, publishable icon.
+/superMens.jpeg
+
+# Maintainer-only release review; public build notes are in docs/DEVELOPMENT.md.
+/docs/PUBLICATION_REVIEW.md

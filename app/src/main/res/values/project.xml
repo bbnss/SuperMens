@@ -1,0 +1,5 @@
+<resources>
+    <!-- Publication is being prepared; this URL becomes available when the repository is created. -->
+    <string name="repository_url" translatable="false">https://github.com/bbnss/SuperMens</string>
+    <string name="privacy_url" translatable="false">https://bbnss.github.io/SuperMens/privacy.html</string>
+</resources>

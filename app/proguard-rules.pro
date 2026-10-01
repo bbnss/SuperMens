@@ -1,0 +1,8 @@
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.tools.**
+-dontwarn org.mozilla.javascript.JavaToJSONConverters
+-dontwarn java.beans.**
+-dontwarn javax.script.**
+-dontwarn jdk.dynalink.**
+-keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
