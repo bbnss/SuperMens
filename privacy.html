@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy policy for SuperMens, the Android knowledge archive with on-device AI.">
+  <title>SuperMens · Privacy Policy</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.65; }
+    body { margin: 0; background: #f5f7fa; color: #162231; }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 24px 64px; }
+    header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+    header img { width: 64px; height: 64px; }
+    header strong { font-size: 1.6rem; }
+    h1 { font-size: 2rem; line-height: 1.2; } h2 { margin-top: 32px; font-size: 1.25rem; }
+    a { color: #096b87; text-underline-offset: 3px; } .muted { color: #526373; }
+    footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccd4dd; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #101923; color: #e6edf5; } a { color: #82d9ed; } .muted { color: #b1bdca; }
+      footer { border-color: #34404c; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header><img src="assets/supermens-icon.svg" alt=""><strong>SuperMens</strong></header>
+  <h1>Privacy Policy</h1>
+  <p class="muted">Last updated: October 1, 2026 · Developer: BBNSS<br>Android application: <code>it.supermens.offline</code></p>
+
+  <p>SuperMens is an Android app for saving content and processing it with on-device AI. BBNSS does not operate a backend for your archive. The app does not require a SuperMens account or upload your archive to BBNSS.</p>
+
+  <h2>Content stored on your device</h2>
+  <p>SuperMens accesses content you choose to create, import or share: notes, links, documents, photos, audio and video. It stores extracted text, previews, retained attachments, summaries, questions and answers, together with source references and processing information. These are used to organize, search and process your archive.</p>
+  <p>Summaries, answers and image descriptions are generated locally. OCR and speech processing also run on the device. There is no remote AI inference endpoint operated by BBNSS.</p>
+
+  <h2>Internet connections and service providers</h2>
+  <p>Saving online content sends requests to the source websites and media providers to obtain text, captions and previews. Those providers can receive the requested URL or content identifier, your IP address and ordinary request metadata. Downloading the AI model contacts Hugging Face and its delivery infrastructure. If you configure the optional Invidious fallback, your chosen instance receives caption requests, including the video identifier and IP address. These providers handle requests under their own policies.</p>
+  <p>SuperMens uses Google ML Kit for OCR and supported speech recognition. Google states that input content and processing results stay on-device. The SDK can contact Google for updates and send diagnostics and usage information, including device and app details, identifiers, processing performance, configuration, input/output sizes, events, errors and configured speech languages. This information supports diagnostics, maintenance and usage analytics. See <a href="https://developers.google.com/ml-kit/terms">ML Kit Terms &amp; Privacy</a>, <a href="https://developers.google.com/ml-kit/android-data-disclosure">Google’s SDK data disclosure</a> and <a href="https://policies.google.com/privacy">Google’s Privacy Policy</a>.</p>
+  <p>BBNSS has not added advertising, advertising tracking or an analytics dashboard. The Google SDK disclosures above still apply.</p>
+
+  <h2>Permissions</h2>
+  <p>Microphone access is requested for voice recordings and dictation. Notifications report downloads and processing progress. File access uses Android’s document picker and permissions for files you select. Photos are captured through your selected camera app. Internet access retrieves online sources, models and SDK resources. Permissions can be managed in Android settings; disabling them can limit the related features.</p>
+
+  <h2>Sharing and exports</h2>
+  <p>Copying text, sharing a post or exporting a backup happens at your request. Content is passed to the app or location you select, which may include a cloud storage provider. Their privacy practices then apply. Backups and shared files can contain your saved content and are not automatically password-encrypted by SuperMens.</p>
+
+  <h2>Retention, deletion and security</h2>
+  <p>Your archive remains on your device until you delete content or remove app data. You can delete individual posts in SuperMens or clear app storage or uninstall the app to remove its app-owned data. Original source files, exported backups, clipboard contents and copies shared elsewhere must be managed separately. BBNSS cannot access or remotely delete your local archive.</p>
+  <p>Android’s app storage protections restrict access to app-owned data. SuperMens does not provide separate archive encryption. Keep your device protected and store exports carefully. Third-party providers control retention of their own request logs and SDK diagnostics under their policies.</p>
+
+  <h2>Contact and changes</h2>
+  <p>For privacy questions, contact BBNSS through the <a href="https://github.com/bbnss/SuperMens/issues/new">SuperMens issue tracker</a>. Issues are public: do not include personal documents, recordings, credentials or other sensitive information.</p>
+  <p>This policy may be updated as the app changes. The date above identifies the latest revision.</p>
+
+  <footer><a href="https://github.com/bbnss/SuperMens">SuperMens on GitHub</a><p class="muted">This page is hosted by GitHub Pages. GitHub may process visitor request information under its <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">Privacy Statement</a>. This page has no added analytics scripts, advertising or external fonts.</p></footer>
+</main>
+</body>
+</html>
