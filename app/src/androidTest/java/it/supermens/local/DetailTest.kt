@@ -1,6 +1,10 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -15,6 +19,53 @@ import org.junit.Test
 class DetailTest {
     @get:Rule val rule=createEmptyComposeRule()
     @get:Rule val locale=AppLocaleRule("it")
+    @Test fun consecutiveSharesBeforeRecompositionBothReachTheArchive() {
+        val instrumentation=InstrumentationRegistry.getInstrumentation()
+        val context=instrumentation.targetContext
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName,android.Manifest.permission.POST_NOTIFICATIONS)
+        val first="First share regression fixture"
+        val second="Second share regression fixture"
+        BrainStore(context).use {store ->
+            val scenario=ActivityScenario.launch(MainActivity::class.java)
+            var launchIntent:android.content.Intent?=null
+            try {
+                scenario.onActivity {activity ->
+                    launchIntent=android.content.Intent(activity.intent)
+                    val receive=MainActivity::class.java.getDeclaredMethod("onNewIntent",android.content.Intent::class.java).apply {isAccessible=true}
+                    listOf(first,second).forEach {text ->receive.invoke(activity,android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type="text/plain";putExtra(android.content.Intent.EXTRA_TEXT,text)
+                    })}
+                }
+                rule.waitUntil(15000) {store.list().any {it.title==first} && store.list().any {it.title==second}}
+                org.junit.Assert.assertEquals(1,store.list().count {it.title==first})
+                org.junit.Assert.assertEquals(1,store.list().count {it.title==second})
+            } finally {
+                // ActivityScenario matches lifecycle callbacks against the original launch intent.
+                scenario.onActivity {it.intent=launchIntent}
+                scenario.close();store.list().filter {it.title in setOf(first,second)}.forEach {ProcessingQueue.remove(context,it.id)}
+            }
+        }
+    }
+    @Test fun waitingArticleCanBeDeletedFromDetailAndDoesNotReturnAfterQueueRecovery() {
+        val instrumentation=InstrumentationRegistry.getInstrumentation()
+        val context=instrumentation.targetContext
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName,android.Manifest.permission.POST_NOTIFICATIONS)
+        BrainStore(context).use {store ->
+            val id=store.add("note","Pending deletion fixture",body="Pending content")
+            ProcessingQueue.enqueue(context,id)
+            store.update(id,status="pending_ai")
+            val scenario=ActivityScenario.launch(MainActivity::class.java)
+            try {
+                rule.waitUntil(15000) {rule.onAllNodesWithText("Pending deletion fixture").fetchSemanticsNodes().isNotEmpty()}
+                rule.onNodeWithText("Pending deletion fixture").performClick()
+                rule.onNodeWithText(AppLanguage.context(context).uiString(R.string.delete_item)).performScrollTo().assertIsEnabled().performClick()
+                rule.waitUntil(10000) {store.get(id)==null}
+                ProcessingQueue.reconcile(context,store)
+                org.junit.Assert.assertFalse(ProcessingQueue.jobs(store).any {it.itemId==id})
+                org.junit.Assert.assertNull(store.get(id))
+            } finally {scenario.close();store.delete(id)}
+        }
+    }
     @Test fun answersFollowSummaryAndSendingScrollsBackFromTranscript() {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext

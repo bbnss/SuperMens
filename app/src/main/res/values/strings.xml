@@ -112,7 +112,7 @@
     <string name="invidious_saved">Invidious instance saved</string>
     <string name="invalid_address">Invalid address</string>
     <string name="save_instance">Save instance</string>
-    <string name="invidious_explanation">YouTube captions: iOS/Android player, then NewPipe. If you enable Invidious as a final fallback, the selected instance receives the video ID and can see the phone’s IP address.</string>
+    <string name="invidious_explanation">YouTube captions: iOS/Android player. If you enable Invidious as a final fallback, the selected instance receives the video ID and can see the phone’s IP address.</string>
     <string name="separate_archive">Separate archive</string>
     <string name="archive_explanation">Your archive is stored on your device. You can export and restore it or transfer it to another phone.</string>
     <string name="export_zip">Export ZIP</string>
@@ -271,4 +271,6 @@
     <string name="queue_position">Queued · position %1$d</string>
     <string name="preview_unavailable">Preview unavailable. You can retry acquisition; the saved text remains available.</string>
     <string name="privacy_policy">Privacy policy</string>
+    <string name="licenses">License and components</string>
+    <string name="license_notice">Copyright © 2026 BBNSS. GPLv3 with Google SDK exception. No warranty.</string>
 </resources>

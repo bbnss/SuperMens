@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 /** Model orchestration kept separate from Android so retrieval and fallback can be tested. */

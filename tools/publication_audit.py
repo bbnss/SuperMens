@@ -26,7 +26,7 @@ PATTERNS = {
 FORBIDDEN_SUFFIXES = {".apk", ".aab", ".jks", ".keystore", ".pem", ".key", ".p12", ".pfx",
                       ".db", ".sqlite", ".sqlite3", ".zip", ".litertlm", ".tflite", ".log"}
 FORBIDDEN_PARTS = {"build", ".gradle", ".kotlin", ".idea", ".private-signing", "profiles"}
-TOP_LEVEL_FILES = {".gitignore", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "build.gradle.kts",
+TOP_LEVEL_FILES = {".gitignore", "README.md", "LICENSE", "LICENSE_EXCEPTION.md", "THIRD_PARTY_NOTICES.md", "build.gradle.kts",
                    "settings.gradle.kts", "gradle.properties", "gradlew"}
 TOP_LEVEL_DIRS = {"app", "gradle", "tools", "docs"}
 

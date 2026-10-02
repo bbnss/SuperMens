@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import android.content.ContentValues
@@ -81,22 +84,32 @@ class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", n
         index(id)
     }
     fun delete(id: String): BrainItem? {
-        val old=get(id) ?: return null
-        writableDatabase.delete("items","id=?",arrayOf(id)); writableDatabase.delete("item_fts","item_id=?",arrayOf(id))
-        return old
+        val db=writableDatabase
+        db.beginTransaction()
+        try {
+            val old=get(id) ?: return null
+            db.delete("items","id=?",arrayOf(id));db.delete("item_fts","item_id=?",arrayOf(id))
+            db.setTransactionSuccessful()
+            return old
+        } finally { db.endTransaction() }
     }
     fun addSegments(itemId:String, segments:List<Segment>) {
         writableDatabase.beginTransaction()
-        try { writableDatabase.delete("segments","item_id=?",arrayOf(itemId)); segments.forEach { s ->
+        try {
+            if(get(itemId)==null) return
+            writableDatabase.delete("segments","item_id=?",arrayOf(itemId)); segments.forEach { s ->
             val v=ContentValues().apply { put("item_id",itemId); put("text",s.text); put("start_ms",s.startMs); put("page",s.page); put("source",s.source) }
             writableDatabase.insertOrThrow("segments",null,v)
-        }; writableDatabase.setTransactionSuccessful() } finally { writableDatabase.endTransaction() }
-        update(itemId,body=segments.joinToString("\n") { it.text })
+        }
+            update(itemId,body=segments.joinToString("\n") { it.text })
+            writableDatabase.setTransactionSuccessful()
+        } finally { writableDatabase.endTransaction() }
     }
     fun upsertAudioClip(itemId:String,index:Int,startMs:Long,text:String) {
         val db=writableDatabase
         db.beginTransaction()
         try {
+            if(get(itemId)==null) return
             db.delete("segments","item_id=? AND source=? AND page=?",arrayOf(itemId,"gemma audio",index.toString()))
             val values=ContentValues().apply { put("item_id",itemId);put("text",text);put("start_ms",startMs);put("page",index);put("source","gemma audio") }
             db.insertOrThrow("segments",null,values)
@@ -115,9 +128,15 @@ class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", n
     }
     fun segments(itemId:String):List<Segment> = readableDatabase.rawQuery("SELECT id,item_id,text,start_ms,page,source FROM segments WHERE item_id=? ORDER BY id",arrayOf(itemId)).use { c -> buildList { while(c.moveToNext()) add(Segment(c.getLong(0),c.getString(1),c.getString(2),c.getLong(3),c.getInt(4),c.getString(5))) } }
     fun addAnswer(itemId:String, question:String, answer:String, evidence:String, model:String, createdAt:Long=System.currentTimeMillis()) {
-        val v=ContentValues().apply { put("item_id",itemId); put("question",question); put("answer",answer); put("evidence",evidence); put("model",model); put("created_at",createdAt) }
-        writableDatabase.insertOrThrow("answers",null,v)
-        index(itemId)
+        val db=writableDatabase
+        db.beginTransaction()
+        try {
+            if(get(itemId)==null) return
+            val v=ContentValues().apply { put("item_id",itemId); put("question",question); put("answer",answer); put("evidence",evidence); put("model",model); put("created_at",createdAt) }
+            db.insertOrThrow("answers",null,v)
+            index(itemId)
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
     }
     fun answers(itemId:String):List<SavedAnswer> = readableDatabase.rawQuery("SELECT id,item_id,question,answer,evidence,model,created_at FROM answers WHERE item_id=? ORDER BY created_at DESC",arrayOf(itemId)).use { c -> buildList { while(c.moveToNext()) add(SavedAnswer(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getLong(6))) } }
     fun restore(item:BrainItem,segments:List<Segment>,answers:List<SavedAnswer>) {

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import android.content.Context
@@ -15,7 +18,7 @@ import java.util.UUID
 
 object Ingest {
     private val url=Regex("https?://[^\\s<>]+")
-    fun intake(context:Context,store:BrainStore,intent:Intent):List<String> {
+    @Synchronized fun intake(context:Context,store:BrainStore,intent:Intent):List<String> {
         val ids=mutableListOf<String>()
         val text=intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
         val uris=mutableListOf<Uri>()
@@ -45,9 +48,18 @@ object Ingest {
         uris.distinct().forEach { ids+=file(context,store,it,intent.type) }
         return ids
     }
-    fun text(context:Context,store:BrainStore,raw:String):String {
+    @Synchronized fun text(context:Context,store:BrainStore,raw:String):String {
         val link=url.find(raw)?.value?.trimEnd('.',',',')',';')
-        if(link!=null) store.findByUrl(link)?.let { return it.id }
+        if(link!=null) store.findByUrl(link)?.let { existing ->
+            // Re-sharing is also an explicit retry when the previous acquisition failed.
+            val jobs=ProcessingQueue.jobs(store).filter { it.itemId==existing.id }
+            if(existing.status in setOf("saved","waiting_network","acquiring") || existing.status.startsWith("extraction_failed") || jobs.any {it.kind=="acquire" && it.state=="failed"}) {
+                enqueue(context,existing.id,manual=true)
+            } else if(existing.status.startsWith("processing_failed")) {
+                enqueue(context,existing.id,enrichOnly=true,manual=true)
+            } else if(!existing.status.startsWith("ready")) ProcessingQueue.wake(context)
+            return existing.id
+        }
         val host=link?.let { runCatching { URI(it).host?.removePrefix("www.") }.getOrNull() }.orEmpty()
         val type=when { host=="youtube.com" || host.endsWith(".youtube.com") || host=="youtu.be" -> "youtube"; host=="instagram.com" || host.endsWith(".instagram.com") -> "instagram"; host=="x.com" || host.endsWith(".x.com") || host=="twitter.com" -> "x"; host=="facebook.com" || host.endsWith(".facebook.com") || host=="fb.watch" -> "facebook"; host=="tiktok.com" || host.endsWith(".tiktok.com") -> "tiktok"; link!=null -> "web"; else -> "note" }
         val title=if(link==null) raw.lineSequence().first().take(90) else when(type) { "youtube"->context.uiString(R.string.youtube_title); "note"->context.uiString(R.string.type_note); else ->context.uiString(R.string.content_from,host) }

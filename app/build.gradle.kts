@@ -11,8 +11,8 @@ android {
         applicationId = "it.supermens.offline"
         minSdk = 35
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.1-alpha"
+        versionCode = 4
+        versionName = "0.2.2-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -36,6 +36,22 @@ android {
         }
     }
 }
+
+// Include the same licence and notices as the corresponding source distribution.
+val prepareLicenseAssets by tasks.registering(Sync::class) {
+    from(rootProject.file("LICENSE"), rootProject.file("LICENSE_EXCEPTION.md"), rootProject.file("THIRD_PARTY_NOTICES.md"))
+    from(provider {
+        configurations.getByName("releaseRuntimeClasspath").resolvedConfiguration.resolvedArtifacts
+            .filter {it.moduleVersion.id.group=="com.google.ai.edge.litertlm"}
+            .map {zipTree(it.file)}
+    }) {
+        include("LICENSE","THIRD_PARTY_NOTICE.txt")
+        rename {name -> "LiteRT-LM-$name"}
+    }
+    into(layout.buildDirectory.dir("generated/licenseAssets/licenses"))
+}
+android.sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/licenseAssets"))
+tasks.named("preBuild").configure { dependsOn(prepareLicenseAssets) }
 
 // AGP can otherwise silently produce an unsigned release when credentials are absent.
 gradle.taskGraph.whenReady {
@@ -67,6 +83,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }

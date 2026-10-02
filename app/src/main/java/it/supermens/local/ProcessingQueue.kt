@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import android.app.Application
@@ -22,7 +25,21 @@ object ProcessingQueue {
     }
     fun question(context:Context,id:String,text:String) { BrainStore(context).use { add(it,id,"question",true,text) };wake(context) }
     fun summary(context:Context,id:String) { BrainStore(context).use { it.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(id));add(it,id,"summary",true) };wake(context) }
+    fun remove(context:Context,id:String):BrainItem? {
+        // Deleting the item cascades to every persistent job. Never wait on native inference.
+        val old=synchronized(mutation) { BrainStore(context).use {it.delete(id)} } ?: return null
+        WorkManager.getInstance(context).cancelUniqueWork("analyze-$id")
+        listOf(old.pendingMedia,old.attachment,old.thumbnail).filter {it.isNotBlank()}.distinct().forEach {java.io.File(it).delete()}
+        if(old.documentUri.isNotBlank()) BrainStore(context).use { store ->
+            if(store.list().none {it.documentUri==old.documentUri}) runCatching {
+                context.contentResolver.releasePersistableUriPermission(android.net.Uri.parse(old.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        wake(context)
+        return old
+    }
     private fun add(store:BrainStore,id:String,kind:String,manual:Boolean,payload:String="") = synchronized(mutation) {
+        if(store.get(id)==null) return@synchronized
         val existing=jobs(store).firstOrNull { it.itemId==id && it.kind==kind && it.payload==payload && it.state in setOf("waiting","running") }
         if(existing!=null) { if(manual) store.writableDatabase.execSQL("UPDATE processing_jobs SET manual=1 WHERE id=?",arrayOf(existing.id));return@synchronized }
         store.writableDatabase.execSQL("UPDATE processing_jobs SET state='superseded' WHERE item_id=? AND kind=? AND state='failed'",arrayOf(id,kind))
@@ -98,6 +115,7 @@ class AcquireWorker(context:Context,params:WorkerParameters):Worker(context,para
                 ProcessingQueue.state(store,job,"done");store.update(item.id,status="pending_ai")
                 ProcessingQueue.wakeProcessing(applicationContext)
             } catch(e:Exception) {
+                if(store.get(item.id)==null) continue
                 if(!ProcessingQueue.connected(applicationContext)) {
                     ProcessingQueue.state(store,job,"waiting",applicationContext.uiString(R.string.waiting_internet))
                     store.update(item.id,status="waiting_network");ProcessingQueue.waitNetwork(applicationContext);continue
@@ -141,6 +159,7 @@ class ProcessingWorker(context:Context,params:WorkerParameters):Worker(context,p
                     }
                     ProcessingQueue.state(store,job,"done")
                 } catch(e:Exception) {
+                    if(store.get(item.id)==null) return@exclusive
                     val waitingModel=e is ModelWaiting
                     val paused=e is InterruptedException
                     if(paused && !job.manual && LocalPrefs.chargingOnly(applicationContext)) ProcessingQueue.waitCharging(applicationContext)

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 /** Eligibility is injected so FIFO and manual priority have no Android dependency. */

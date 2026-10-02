@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import android.content.Context
@@ -66,6 +69,69 @@ class QueueStorageTest {
         ProcessingQueue.enqueue(context,id,manual=true)
         assertEquals(1,ProcessingQueue.jobs(store).count {it.kind=="acquire" && it.state=="waiting"})
         assertEquals("superseded",ProcessingQueue.jobs(store).first {it.id==acquisition.id}.state)
+    }
+    @Test fun reshareRetriesFailedArticleWithoutDuplicatingOrReacquiringReadyArticle() {
+        val url="https://example.org/news/reshare-fixture"
+        val id=store.add("web","Failed article",sourceUrl=url)
+        ProcessingQueue.enqueue(context,id)
+        val failed=ProcessingQueue.jobs(store).single {it.kind=="acquire"}
+        ProcessingQueue.state(store,failed,"failed",error=true)
+        store.update(id,status="extraction_failed · fixture")
+        val intent=android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type="text/plain";putExtra(android.content.Intent.EXTRA_TEXT,"An article $url")
+        }
+        assertEquals(listOf(id),Ingest.intake(context,store,intent))
+        assertEquals(1,store.list().size)
+        assertEquals("superseded",ProcessingQueue.jobs(store).first {it.id==failed.id}.state)
+        assertTrue(ProcessingQueue.jobs(store).single {it.kind=="acquire" && it.state=="waiting"}.manual)
+        ProcessingQueue.jobs(store).forEach {ProcessingQueue.state(store,it,"done")}
+        store.update(id,status="ready")
+        val before=ProcessingQueue.jobs(store)
+        assertEquals(id,Ingest.text(context,store,url))
+        assertEquals(before,ProcessingQueue.jobs(store))
+        assertNotEquals(id,Ingest.text(context,store,"https://example.org/news/browser-fixture"))
+        assertEquals(2,store.list().size)
+    }
+    @Test fun deleteRemovesQueuedJobsCheckpointsAndFilesWithoutWaitingForInference() {
+        val file=File(context.filesDir,"article-preview.webp").apply {writeText("preview fixture")}
+        val id=store.add("web","Waiting article",sourceUrl="https://example.org",thumbnail=file.absolutePath)
+        val other=store.add("note","Other post",body="Keep me")
+        store.addSegments(id,listOf(Segment(0,id,"Article text",-1,-1,"web")))
+        store.addAnswer(id,"Question","Answer","","model")
+        store.writableDatabase.execSQL("INSERT INTO summary_chunks VALUES(?,?,?)",arrayOf(id,"chunk","Checkpoint"))
+        ProcessingQueue.enqueue(context,id);ProcessingQueue.enqueue(context,other)
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        val removed=java.util.concurrent.CountDownLatch(1)
+        val errors=java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val native=Thread {ProcessingGuard.exclusive {entered.countDown();release.await(10,TimeUnit.SECONDS)}}
+        val deletion=Thread {try {ProcessingQueue.remove(context,id)} catch(t:Throwable) {errors.set(t)} finally {removed.countDown()}}
+        native.start()
+        try {
+            assertTrue(entered.await(5,TimeUnit.SECONDS));deletion.start()
+            assertTrue("Deletion must not wait for another post's inference",removed.await(3,TimeUnit.SECONDS))
+            assertNull(errors.get());assertNull(store.get(id));assertFalse(file.exists())
+            assertTrue(store.segments(id).isEmpty());assertTrue(store.answers(id).isEmpty())
+            assertFalse(ProcessingQueue.jobs(store).any {it.itemId==id})
+            assertTrue(ProcessingQueue.jobs(store).any {it.itemId==other})
+            store.readableDatabase.rawQuery("SELECT COUNT(*) FROM summary_chunks WHERE item_id=?",arrayOf(id)).use {it.moveToFirst();assertEquals(0,it.getInt(0))}
+            assertNotNull(store.get(other))
+        } finally {release.countDown();native.join(5000);deletion.join(5000)}
+    }
+    @Test fun lateAcquisitionTranscriptionAndAnswersCannotRestoreDeletedPost() {
+        val id=store.add("web","Deleted article")
+        ProcessingQueue.enqueue(context,id)
+        val job=ProcessingQueue.jobs(store).first()
+        ProcessingQueue.remove(context,id)
+        store.addSegments(id,listOf(Segment(0,id,"Late article",-1,-1,"web")))
+        store.upsertAudioClip(id,0,0,"Late transcript")
+        store.addAnswer(id,"Late question","Late answer","","model")
+        store.update(id,status="ready")
+        ProcessingQueue.state(store,job,"waiting")
+        ProcessingQueue.enqueue(context,id)
+        ProcessingQueue.question(context,id,"Where?")
+        assertNull(store.get(id));assertTrue(store.segments(id).isEmpty())
+        assertTrue(store.answers(id).isEmpty());assertTrue(ProcessingQueue.jobs(store).isEmpty())
     }
     @Test fun completeShareContainsAllSegmentsAnswersAndOcr() {
         val id=store.add("image","Shared image",sourceUrl="https://example.org")

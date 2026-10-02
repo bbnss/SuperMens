@@ -9,13 +9,13 @@
 An AI-powered personal knowledge archive for Android,<br>
 with a local LLM and on-device processing.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
+[![License: GPL v3 + exception](https://img.shields.io/badge/License-GPLv3%20%2B%20exception-blue)](LICENSE_EXCEPTION.md)
 ![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange)
 ![Android 15+](https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white)
 ![ARM64](https://img.shields.io/badge/Architecture-ARM64-64748B)
 ![On-device AI](https://img.shields.io/badge/AI-On--device-38BDF8)
 
-**Alpha APK — release being prepared**
+[**Download the Alpha APK**](https://github.com/bbnss/SuperMens/releases/download/v0.2.2-alpha/SuperMens-v0.2.2-alpha.apk)
 · [Privacy policy](https://bbnss.github.io/SuperMens/privacy.html)
 · [Report an issue](https://github.com/bbnss/SuperMens/issues)
 · [SuperBrain inspiration](https://github.com/sidinsearch/superbrain)
@@ -59,7 +59,7 @@ Share content from other Android apps, import files, paste a link or capture a p
 
 ## Get started
 
-1. Download and install the Alpha APK when a release is available.
+1. Download and install the [Alpha APK](https://github.com/bbnss/SuperMens/releases/download/v0.2.2-alpha/SuperMens-v0.2.2-alpha.apk).
 2. Open **Settings** and download **Gemma 4 E2B** over an unmetered connection, or import the supported `.litertlm` model file.
 3. Save something through Android sharing or the **+** menu.
 4. Open its card to read, copy, share or ask a question.
@@ -105,11 +105,11 @@ Requires JDK 17, Android SDK 36 and the included Gradle wrapper.
 
 Release builds require [private signing configuration](docs/DEVELOPMENT.md#release-signing).
 
-Built with Kotlin, Jetpack Compose, SQLite, WorkManager, LiteRT-LM and ML Kit, with NewPipeExtractor as a YouTube fallback. Third-party components and model weights retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+Built with Kotlin, Jetpack Compose, SQLite, WorkManager, LiteRT-LM and ML Kit. YouTube captions use direct retrieval with an optional Invidious fallback. Third-party components and model weights retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## License
 
-SuperMens source code is licensed under **GNU GPL v3.0**. You may use, modify and redistribute it, including commercially, subject to the license and its corresponding-source requirements. See [LICENSE](LICENSE). Third-party components and model weights retain their own terms.
+SuperMens source code is licensed under **GNU GPL v3.0 only, with a Google SDK linking exception**. You may use, modify and redistribute it, including commercially, subject to the license and its corresponding-source requirements. See [LICENSE](LICENSE) and the [additional permission for ML Kit](LICENSE_EXCEPTION.md). The exception applies to BBNSS-owned code and does not relicense Google's SDKs or other third-party components. Model weights retain their own terms.
 
 ---
 

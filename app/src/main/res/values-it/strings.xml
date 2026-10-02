@@ -112,7 +112,7 @@
     <string name="invidious_saved">Istanza Invidious salvata</string>
     <string name="invalid_address">Indirizzo non valido</string>
     <string name="save_instance">Salva istanza</string>
-    <string name="invidious_explanation">Sottotitoli YouTube: player iOS/Android, poi NewPipe. Se abiliti Invidious come ultimo tentativo, l’istanza scelta riceve l’ID del video e può vedere l’IP del telefono.</string>
+    <string name="invidious_explanation">Sottotitoli YouTube: player iOS/Android. Se abiliti Invidious come ultimo tentativo, l’istanza scelta riceve l’ID del video e può vedere l’IP del telefono.</string>
     <string name="separate_archive">Archivio separato</string>
     <string name="archive_explanation">Il tuo archivio è conservato sul dispositivo. Puoi esportarlo e ripristinarlo oppure trasferirlo su un altro telefono.</string>
     <string name="export_zip">Esporta ZIP</string>
@@ -271,4 +271,6 @@
     <string name="queue_position">In coda · posizione %1$d</string>
     <string name="preview_unavailable">Anteprima non disponibile. Puoi riprovare l’acquisizione; il testo salvato rimane disponibile.</string>
     <string name="privacy_policy">Informativa sulla privacy</string>
+    <string name="licenses">Licenza e componenti</string>
+    <string name="license_notice">Copyright © 2026 BBNSS. GPLv3 con eccezione SDK Google. Nessuna garanzia.</string>
 </resources>

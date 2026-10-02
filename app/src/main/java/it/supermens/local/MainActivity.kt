@@ -1,3 +1,6 @@
+// Copyright (C) 2026 BBNSS
+// GPL-3.0-only with the Google SDK linking exception in LICENSE_EXCEPTION.md.
+
 package it.supermens.local
 
 import android.Manifest
@@ -80,6 +83,7 @@ private val bg=appBackground; private val panel=appPanel; private val accent=app
 class MainActivity:ComponentActivity() {
     override fun attachBaseContext(newBase: Context) { super.attachBaseContext(AppLanguage.context(newBase)) }
     private var shareVersion by mutableIntStateOf(0)
+    private val pendingShares=mutableListOf<Intent>()
     private var recorder:MediaRecorder?=null
     private var recordingFile:File?=null
     private var recording by mutableStateOf(false)
@@ -100,11 +104,19 @@ class MainActivity:ComponentActivity() {
             val model = LocalModel.file(this)
             "file=${model.absolutePath} exists=${model.exists()} bytes=${model.length()} downloadId=${LocalModel.downloadId(this)} state=${LocalModel.state(this)}"
         }.getOrElse { "diagnostic error=${it.message}" })
-        shareVersion++
+        receiveShare(intent)
         setContent { App(this) }
     }
-    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent); setIntent(intent); shareVersion++ }
+    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent); setIntent(intent);receiveShare(intent) }
+    private fun receiveShare(intent:Intent) {
+        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) pendingShares+=Intent(intent)
+        shareVersion++
+    }
     fun shareSignal()=shareVersion
+    fun consumeShares():List<Intent> = pendingShares.toList().also {
+        pendingShares.clear()
+        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) intent=Intent(Intent.ACTION_MAIN)
+    }
     fun isRecording()=recording
     fun isDictating()=dictating
     fun isDictationListening()=dictationListening || fallbackRecorder!=null
@@ -350,11 +362,14 @@ class MainActivity:ComponentActivity() {
     LaunchedEffect(Unit) { var wasReady=false;while(true) {val ready=LocalModel.ready(context);if(ready && !wasReady) ProcessingQueue.wakeProcessing(context);wasReady=ready;delay(5000)} }
     LaunchedEffect(Unit) { if(ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     LaunchedEffect(activity.shareSignal()) {
-        val intent=activity.intent
-        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) {
-            val ids=withContext(Dispatchers.IO){runCatching { Ingest.intake(context,store,intent) }.getOrElse { reportError(it.message.orEmpty());emptyList() }}
-            if(ids.isNotEmpty()) { refresh++;screen="home";current=ids.first();message=context.uiString(R.string.content_saved) }
-            activity.intent=Intent(Intent.ACTION_MAIN)
+        // Preserve every incoming intent, even when several arrive before Compose updates.
+        val shares=activity.consumeShares()
+        if(shares.isNotEmpty()) scope.launch {
+            for(intent in shares) {
+                runCatching {withContext(Dispatchers.IO){Ingest.intake(context,store,intent)}}
+                    .onSuccess {ids ->if(ids.isNotEmpty()) {refresh++;screen="home";current=ids.first();message=context.uiString(R.string.content_saved)}}
+                    .onFailure {reportError(it.message.orEmpty())}
+            }
         }
     }
     BackHandler(enabled=screen!="home") { screen="home";current=null }
@@ -443,6 +458,7 @@ class MainActivity:ComponentActivity() {
     val pendingQuestion=detailJobs.firstOrNull {it.kind=="question" && it.state in setOf("waiting","running")}?.payload
     val answerProgress=detailJobs.firstOrNull {it.kind=="question" && it.state in setOf("waiting","running")}?.progress?.ifBlank {context.uiString(R.string.queued)}.orEmpty()
     var sharing by remember(id) {mutableStateOf(false)}
+    var deleting by remember(id) {mutableStateOf(false)}
     var shareMenu by remember(id) {mutableStateOf(false)}
     var integrateText by remember(id) {mutableStateOf(false)}
     var addedText by remember(id) {mutableStateOf("")}
@@ -590,14 +606,10 @@ class MainActivity:ComponentActivity() {
                         withContext(Dispatchers.Main){onRefresh();onMessage(context.uiString(R.string.transcription_started))}
                     }}){Text(if(i.status.startsWith("ready")) context.uiString(R.string.retranscribe) else context.uiString(R.string.resume_transcription))}
                 }
-                TextButton(enabled=!busy,onClick={scope.launch(Dispatchers.IO){
-                    androidx.work.WorkManager.getInstance(context).cancelUniqueWork("analyze-$id").result.get()
-                    val old=ProcessingGuard.exclusive {store.delete(id)}
-                    old?.pendingMedia?.takeIf {it.isNotBlank()}?.let {File(it).delete()}
-                    old?.attachment?.let{if(it.isNotBlank())File(it).delete()}
-                    old?.thumbnail?.let{if(it.isNotBlank() && it!=old.attachment)File(it).delete()}
-                    if(!old?.documentUri.isNullOrBlank() && store.list().none { it.documentUri==old?.documentUri }) runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(old!!.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    withContext(Dispatchers.Main){onDelete()}
+                TextButton(enabled=!deleting,onClick={deleting=true;scope.launch {
+                    runCatching {withContext(Dispatchers.IO){ProcessingQueue.remove(context,id)}}
+                        .onSuccess {onDelete()}
+                        .onFailure {deleting=false;onError(it.message ?: context.uiString(R.string.item_missing))}
                 }}){Text(context.uiString(R.string.delete_item),color=Color(0xFFFF8B8B))}
             }
             if(i.body.isNotBlank() && (i.type!="youtube" || segments.isNotEmpty())) Surface(color=panel,elevation=8.dp) {
@@ -625,6 +637,10 @@ class MainActivity:ComponentActivity() {
     var state by remember { mutableStateOf(LocalModel.state(context)) }
     var chargingOnly by remember { mutableStateOf(LocalPrefs.chargingOnly(context)) }
     var invidious by remember { mutableStateOf(LocalPrefs.invidiousInstance(context)) }
+    var licenses by remember {mutableStateOf<String?>(null)}
+    if(licenses!=null) AlertDialog(onDismissRequest={licenses=null},title={Text(context.uiString(R.string.licenses))},text={
+        Text(licenses!!,Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),fontSize=12.sp)
+    },confirmButton={TextButton(onClick={licenses=null}){Text(context.uiString(R.string.close))}})
     LaunchedEffect(Unit) { while(true) {state=LocalModel.state(context);unloadAllowed=withContext(Dispatchers.IO) {ProcessingQueue.canUnload(context)}; delay(1500)} }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text(context.uiString(R.string.model_heading),fontSize=20.sp,fontWeight=FontWeight.Bold)
@@ -666,6 +682,12 @@ class MainActivity:ComponentActivity() {
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(context.getString(R.string.privacy_url)))) }
                 .onFailure { onError(context.uiString(R.string.link_open_failed)) }
         }) { Text(context.uiString(R.string.privacy_policy)) }
+        Text(context.uiString(R.string.license_notice),fontSize=12.sp,color=appMuted)
+        TextButton(onClick={scope.launch {
+            runCatching {withContext(Dispatchers.IO) {
+                listOf("LICENSE_EXCEPTION.md","LICENSE","THIRD_PARTY_NOTICES.md").joinToString("\n\n") {name ->context.assets.open("licenses/$name").bufferedReader().use {it.readText()}}
+            }}.onSuccess {licenses=it}.onFailure {onError(it.message.orEmpty())}
+        }}) {Text(context.uiString(R.string.licenses))}
         Divider()
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).clip(CircleShape)) {

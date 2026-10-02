@@ -37,3 +37,5 @@ apk/
 
 # Maintainer-only release review; public build notes are in docs/DEVELOPMENT.md.
 /docs/PUBLICATION_REVIEW.md
+# Private archive supplied for troubleshooting.
+/docs/manifest.json
