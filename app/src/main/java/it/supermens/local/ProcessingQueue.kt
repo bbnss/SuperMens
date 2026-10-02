@@ -90,11 +90,11 @@ object ProcessingQueue {
     }
 }
 class SuperMensApp:Application() {
-    override fun onCreate() { super.onCreate();Thread { ProcessingQueue.recover(this) }.start() }
+    override fun onCreate() { super.onCreate();Thread { LocalModel.state(this);ProcessingQueue.recover(this) }.start() }
 }
 class QueueWakeReceiver:BroadcastReceiver() {
     override fun onReceive(context:Context,intent:Intent) {
-        if(intent.action==DownloadManager.ACTION_DOWNLOAD_COMPLETE && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID,-1)==LocalModel.downloadId(context)) ProcessingQueue.wakeProcessing(context)
+        if(intent.action==DownloadManager.ACTION_DOWNLOAD_COMPLETE && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID,-1)==LocalModel.downloadId(context)) LocalModel.state(context)
     }
 }
 class ChargingWakeWorker(context:Context,params:WorkerParameters):Worker(context,params) {

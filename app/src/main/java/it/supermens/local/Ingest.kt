@@ -55,13 +55,15 @@ object Ingest {
             val jobs=ProcessingQueue.jobs(store).filter { it.itemId==existing.id }
             if(existing.status in setOf("saved","waiting_network","acquiring") || existing.status.startsWith("extraction_failed") || jobs.any {it.kind=="acquire" && it.state=="failed"}) {
                 enqueue(context,existing.id,manual=true)
+            } else if(existing.sourceQuality.endsWith("_preview_failed") || (existing.type=="x" && existing.thumbnail.isBlank())) {
+                enqueue(context,existing.id,manual=true)
             } else if(existing.status.startsWith("processing_failed")) {
                 enqueue(context,existing.id,enrichOnly=true,manual=true)
             } else if(!existing.status.startsWith("ready")) ProcessingQueue.wake(context)
             return existing.id
         }
-        val host=link?.let { runCatching { URI(it).host?.removePrefix("www.") }.getOrNull() }.orEmpty()
-        val type=when { host=="youtube.com" || host.endsWith(".youtube.com") || host=="youtu.be" -> "youtube"; host=="instagram.com" || host.endsWith(".instagram.com") -> "instagram"; host=="x.com" || host.endsWith(".x.com") || host=="twitter.com" -> "x"; host=="facebook.com" || host.endsWith(".facebook.com") || host=="fb.watch" -> "facebook"; host=="tiktok.com" || host.endsWith(".tiktok.com") -> "tiktok"; link!=null -> "web"; else -> "note" }
+        val host=link?.let { runCatching { URI(it).host?.lowercase()?.removePrefix("www.") }.getOrNull() }.orEmpty()
+        val type=when { host=="youtube.com" || host.endsWith(".youtube.com") || host=="youtu.be" -> "youtube"; host=="instagram.com" || host.endsWith(".instagram.com") -> "instagram"; host=="x.com" || host.endsWith(".x.com") || host=="twitter.com" || host.endsWith(".twitter.com") -> "x"; host=="facebook.com" || host.endsWith(".facebook.com") || host=="fb.watch" -> "facebook"; host=="tiktok.com" || host.endsWith(".tiktok.com") -> "tiktok"; link!=null -> "web"; else -> "note" }
         val title=if(link==null) raw.lineSequence().first().take(90) else when(type) { "youtube"->context.uiString(R.string.youtube_title); "note"->context.uiString(R.string.type_note); else ->context.uiString(R.string.content_from,host) }
         val id=store.add(type,title,link.orEmpty(),host,raw)
         enqueue(context,id)

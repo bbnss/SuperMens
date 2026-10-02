@@ -15,7 +15,7 @@ with a local LLM and on-device processing.
 ![ARM64](https://img.shields.io/badge/Architecture-ARM64-64748B)
 ![On-device AI](https://img.shields.io/badge/AI-On--device-38BDF8)
 
-[**Download the Alpha APK**](https://github.com/bbnss/SuperMens/releases/download/v0.2.2-alpha/SuperMens-v0.2.2-alpha.apk)
+[**Download the APK**](https://github.com/bbnss/SuperMens/releases/latest/download/SuperMens.apk)
 · [Privacy policy](https://bbnss.github.io/SuperMens/privacy.html)
 · [Report an issue](https://github.com/bbnss/SuperMens/issues)
 · [SuperBrain inspiration](https://github.com/sidinsearch/superbrain)
@@ -59,10 +59,12 @@ Share content from other Android apps, import files, paste a link or capture a p
 
 ## Get started
 
-1. Download and install the [Alpha APK](https://github.com/bbnss/SuperMens/releases/download/v0.2.2-alpha/SuperMens-v0.2.2-alpha.apk).
-2. Open **Settings** and download **Gemma 4 E2B** over an unmetered connection, or import the supported `.litertlm` model file.
-3. Save something through Android sharing or the **+** menu.
+1. Download and install the [APK](https://github.com/bbnss/SuperMens/releases/latest/download/SuperMens.apk).
+2. Open **Settings** and download **Gemma 4 E2B** over Wi-Fi or explicitly allow mobile data, or import the supported `.litertlm` model file.
+3. Use **Test model** to check local inference, then save something through Android sharing or the **+** menu.
 4. Open its card to read, copy, share or ask a question.
+
+Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source. Version 0.2.3 is a regular release, so prereleases do not need to be enabled; the app remains experimental.
 
 The model is downloaded separately and occupies approximately [2.6 GB](https://developers.google.com/edge/litert-lm/models/gemma-4). Allow additional storage for imports and temporary processing files. The supported model revision and import details are in the [developer notes](docs/DEVELOPMENT.md).
 

@@ -19,29 +19,34 @@ object LocalAi {
     private var vision = false
     val loaded = kotlinx.coroutines.flow.MutableStateFlow(false)
     fun modelName(context: Context) = "Gemma 4 E2B · " + if(AppLanguage.code(context)=="it") "locale" else "local"
-    fun unload() = synchronized(lock) { engine?.close(); engine = null; path = ""; vision = false; loaded.value=false }
+    fun unload() = synchronized(lock) {
+        val previous = engine
+        engine = null; path = ""; vision = false; loaded.value=false
+        if (previous?.isInitialized() == true) previous.close()
+    }
+    fun verify(context: Context): String = synchronized(lock) {
+        generate(context, "Reply with only the word OK.")
+        if (vision) "GPU" else "CPU"
+    }
     private fun engine(context: Context): Engine {
         require(LocalModel.ready(context)) { context.uiString(R.string.install_model_hint) }
         val modelPath = LocalModel.file(context).absolutePath
-        engine?.takeIf { path == modelPath }?.let { return it }
+        engine?.takeIf { path == modelPath && it.isInitialized() }?.let { return it }
         unload()
         val configs = listOf(
             EngineConfig(modelPath = modelPath, backend = Backend.GPU(), visionBackend = Backend.GPU(), audioBackend = Backend.CPU(), maxNumTokens = 4096, cacheDir = context.cacheDir.absolutePath),
             EngineConfig(modelPath = modelPath, backend = Backend.CPU(), audioBackend = Backend.CPU(), maxNumTokens = 4096, cacheDir = context.cacheDir.absolutePath)
         )
-        var lastError: Throwable? = null
-        configs.forEachIndexed { index, config ->
-            val candidate = Engine(config)
-            try {
-                candidate.initialize()
-                engine = candidate; path = modelPath; vision = index == 0; loaded.value=true
-                return candidate
-            } catch (error: Throwable) {
-                candidate.close()
-                lastError = error
-            }
+        try {
+            val (candidate, index) = EngineStartup.initialize(configs, ::Engine, { it.initialize() }, {
+                // LiteRT-LM 0.11 throws on close() after a failed initialize().
+                if (it.isInitialized()) it.close()
+            }) { index, error -> android.util.Log.w("SuperMensEngine", "Backend $index failed to initialize", error) }
+            engine = candidate; path = modelPath; vision = index == 0; loaded.value=true
+            return candidate
+        } catch (error: Throwable) {
+            throw IllegalStateException(context.uiString(R.string.gemma_start_failed,error.message.orEmpty()), error)
         }
-        throw IllegalStateException(context.uiString(R.string.gemma_start_failed,lastError?.message.orEmpty()), lastError)
     }
     fun generate(context: Context, prompt: String): String = synchronized(lock) {
         engine(context).createConversation().use { conversation ->

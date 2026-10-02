@@ -179,7 +179,7 @@
     <string name="unknown_error">unknown error</string>
     <string name="model_already_installed">Model already installed</string>
     <string name="model_download_description">Downloading the local model (2.58 GB)</string>
-    <string name="model_ready">✓ Model ready</string>
+    <string name="model_ready">✓ Model file verified</string>
     <string name="model_not_installed">Model not installed</string>
     <string name="download_missing">Download not found</string>
     <string name="download_waiting">Download waiting</string>
@@ -273,4 +273,16 @@
     <string name="privacy_policy">Privacy policy</string>
     <string name="licenses">License and components</string>
     <string name="license_notice">Copyright © 2026 BBNSS. GPLv3 with Google SDK exception. No warranty.</string>
+    <string name="model_network_title">Download connection</string>
+    <string name="model_network_explanation">Gemma requires 2.58 GB. You can wait for Wi-Fi or allow mobile data and metered Wi-Fi for this download. Mobile data may incur charges. Roaming remains disabled.</string>
+    <string name="model_mobile_restart">Allow mobile data for this 2.58 GB download? The download waiting for Wi-Fi will restart from zero. Mobile data may incur charges. Roaming remains disabled.</string>
+    <string name="download_mobile">Allow mobile data</string>
+    <string name="download_wifi">Wait for Wi-Fi</string>
+    <string name="download_waiting_wifi">Waiting for Wi-Fi: %1$d%%</string>
+    <string name="download_failed_reason">Download failed (code %1$d). Check the connection and free storage, then retry.</string>
+    <string name="model_verifying">Verifying model integrity…</string>
+    <string name="model_integrity_failed">The model is incomplete or corrupted. Download it again or import the supported file.</string>
+    <string name="model_check">Test model</string>
+    <string name="model_checking">Testing model…</string>
+    <string name="model_check_success">Model works · %1$s</string>
 </resources>

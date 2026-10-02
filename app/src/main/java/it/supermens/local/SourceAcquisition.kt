@@ -58,25 +58,11 @@ object SourceAcquisition {
         var page:PublicPage.Content?=null
         var quality="unknown"
         if(item.type=="x") {
-            val id=Regex("/status/(\\d+)").find(item.sourceUrl)?.groupValues?.get(1)
+            val id=XPost.id(item.sourceUrl)
             if(id!=null) runCatching {
-                val obj=JSONObject(get("https://cdn.syndication.twimg.com/tweet-result?id=$id&lang=${AppLanguage.code(context)}&token=0").first)
-                val full=obj.optJSONObject("note_tweet")?.optString("text").orEmpty().ifBlank { obj.optString("full_text") }
-                val text=full.ifBlank { obj.optString("text") }
-                require(text.isNotBlank())
-                val photos=obj.optJSONArray("photos")
-                val images=buildList {
-                    if(photos!=null) for(i in 0 until photos.length()) photos.optJSONObject(i)?.optString("url")?.takeIf {it.startsWith("https://")}?.let {add(it)}
-                    val media=obj.optJSONArray("mediaDetails")
-                    if(media!=null) for(i in 0 until media.length()) {
-                        val entry=media.optJSONObject(i) ?: continue
-                        listOf("media_url_https","thumbnail_url").forEach {key ->entry.optString(key).takeIf {it.startsWith("https://")}?.let {add(it)}}
-                    }
-                }.distinct()
-                // Public syndication does not reliably certify long-post completeness.
-                quality=if(full.isNotBlank()) "complete" else if(text.endsWith("…") || text.endsWith("...")) "limited" else "unknown"
-                page=PublicPage.Content(obj.optJSONObject("user")?.optString("name").orEmpty().ifBlank {item.title},text,images,quality!="complete")
-            }
+                val (content,sourceQuality)=XPost.parse(get("https://cdn.syndication.twimg.com/tweet-result?id=$id&lang=${AppLanguage.code(context)}&token=0").first,item.title)
+                page=content;quality=sourceQuality
+            }.onFailure { android.util.Log.w("SuperMensSource", "Public X syndication unavailable",it) }
             if(page==null) runCatching {
                 val obj=JSONObject(get("https://publish.x.com/oembed?url=${URLEncoder.encode(item.sourceUrl,"UTF-8")}&omit_script=true&dnt=true").first)
                 val text=Jsoup.parse(obj.getString("html")).selectFirst("blockquote p")?.text().orEmpty()
@@ -87,7 +73,12 @@ object SourceAcquisition {
             val (html,finalUrl)=get(item.sourceUrl)
             page=PublicPage.parse(html,finalUrl,social);quality=if(social) "limited" else "complete"
         }
-        val content=page!!
+        var content=page!!
+        // oEmbed returns text without images. HTML metadata may still supply the preview.
+        if(item.type=="x" && content.images.isEmpty()) runCatching {
+            val (html,finalUrl)=get(item.sourceUrl)
+            content=content.copy(images=PublicPage.parse(html,finalUrl,true).images)
+        }
         val shared=store.segments(item.id).filter { it.source=="testo condiviso" }.ifEmpty { if(item.body.isNotBlank()) listOf(Segment(0,item.id,item.body,-1,-1,"testo condiviso")) else emptyList() }
         if(content.text.isNotBlank()) store.addSegments(item.id,shared+Segment(0,item.id,content.text,-1,-1,if(social) "metadati pubblici" else "web"))
         if(content.title.isNotBlank()) store.update(item.id,title=content.title.take(150))
@@ -95,7 +86,7 @@ object SourceAcquisition {
         preview(context,store,item,content.images)
     }
     private fun preview(context:Context,store:BrainStore,item:BrainItem,candidates:List<String>) {
-        val tweetPhoto=item.type=="x" && candidates.any {it.contains("pbs.twimg.com/media/")}
+        val tweetPhoto=item.type=="x" && candidates.any {it.contains("pbs.twimg.com/media/") || it.contains("pbs.twimg.com/card_img/") || it.contains("video_thumb")}
         if(!tweetPhoto && item.thumbnail.isNotBlank() && File(item.thumbnail).isFile) return
         val usable=candidates.filter { it.startsWith("https://") && !(item.type=="x" && (it.contains("abs.twimg.com") || it.contains("twitter_logo") || it.contains("/icons/"))) }
         for(url in usable) try {
@@ -106,6 +97,6 @@ object SourceAcquisition {
             if(previous.isNotBlank() && previous!=item.attachment) File(previous).delete()
             return
         } catch(e:Exception) { android.util.Log.w("SuperMensPreview", "Preview unavailable for ${item.id}",e) }
-        if(usable.isNotEmpty()) store.update(item.id,sourceQuality=store.get(item.id)?.sourceQuality.orEmpty()+"_preview_failed")
+        if(usable.isNotEmpty() || (item.type=="x" && item.thumbnail.isBlank())) store.update(item.id,sourceQuality=store.get(item.id)?.sourceQuality.orEmpty()+"_preview_failed")
     }
 }

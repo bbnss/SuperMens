@@ -179,7 +179,7 @@
     <string name="unknown_error">errore sconosciuto</string>
     <string name="model_already_installed">Modello già installato</string>
     <string name="model_download_description">Download del modello locale (2,58 GB)</string>
-    <string name="model_ready">✓ Modello pronto</string>
+    <string name="model_ready">✓ File del modello verificato</string>
     <string name="model_not_installed">Modello non installato</string>
     <string name="download_missing">Download non trovato</string>
     <string name="download_waiting">Download in attesa</string>
@@ -273,4 +273,16 @@
     <string name="privacy_policy">Informativa sulla privacy</string>
     <string name="licenses">Licenza e componenti</string>
     <string name="license_notice">Copyright © 2026 BBNSS. GPLv3 con eccezione SDK Google. Nessuna garanzia.</string>
+    <string name="model_network_title">Connessione per il download</string>
+    <string name="model_network_explanation">Gemma richiede 2,58 GB. Puoi attendere il Wi-Fi oppure autorizzare dati mobili e Wi-Fi a consumo per questo download. Potrebbero esserci costi sulla rete mobile. Il roaming resta disabilitato.</string>
+    <string name="model_mobile_restart">Autorizzi la rete mobile per questo download da 2,58 GB? Il download in attesa del Wi-Fi ripartirà da zero. Potrebbero esserci costi sulla rete mobile. Il roaming resta disabilitato.</string>
+    <string name="download_mobile">Autorizza dati mobili</string>
+    <string name="download_wifi">Attendi Wi-Fi</string>
+    <string name="download_waiting_wifi">In attesa del Wi-Fi: %1$d%%</string>
+    <string name="download_failed_reason">Download non riuscito (codice %1$d). Controlla connessione e spazio libero, poi riprova.</string>
+    <string name="model_verifying">Verifica integrità del modello…</string>
+    <string name="model_integrity_failed">Il modello è incompleto o danneggiato. Scaricalo di nuovo oppure importa il file supportato.</string>
+    <string name="model_check">Verifica modello</string>
+    <string name="model_checking">Verifica del modello…</string>
+    <string name="model_check_success">Modello funzionante · %1$s</string>
 </resources>

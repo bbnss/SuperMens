@@ -638,6 +638,20 @@ class MainActivity:ComponentActivity() {
     var chargingOnly by remember { mutableStateOf(LocalPrefs.chargingOnly(context)) }
     var invidious by remember { mutableStateOf(LocalPrefs.invidiousInstance(context)) }
     var licenses by remember {mutableStateOf<String?>(null)}
+    var downloadDialog by remember {mutableStateOf(false)}
+    var checkingModel by remember {mutableStateOf(false)}
+    fun startDownload(mobile: Boolean) {
+        downloadDialog=false
+        runCatching {
+            if(state.waitingForWifi) LocalModel.cancel(context)
+            LocalModel.start(context,allowMetered=mobile);state=LocalModel.state(context)
+        }.onFailure {onError(it.message ?: context.uiString(R.string.download_not_started))}
+    }
+    if(downloadDialog) AlertDialog(onDismissRequest={downloadDialog=false},
+        title={Text(context.uiString(R.string.model_network_title))},
+        text={Text(context.uiString(if(state.waitingForWifi) R.string.model_mobile_restart else R.string.model_network_explanation))},
+        confirmButton={TextButton(onClick={startDownload(true)}){Text(context.uiString(R.string.download_mobile))}},
+        dismissButton={TextButton(onClick={if(state.waitingForWifi) downloadDialog=false else startDownload(false)}){Text(context.uiString(R.string.download_wifi))}})
     if(licenses!=null) AlertDialog(onDismissRequest={licenses=null},title={Text(context.uiString(R.string.licenses))},text={
         Text(licenses!!,Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),fontSize=12.sp)
     },confirmButton={TextButton(onClick={licenses=null}){Text(context.uiString(R.string.close))}})
@@ -647,10 +661,19 @@ class MainActivity:ComponentActivity() {
         Text(context.uiString(R.string.local_processing_explanation),fontSize=13.sp,color=Color.LightGray)
         Text(state.message,color=if(LocalModel.ready(context)) Color(0xFF8DE4B2) else Color.LightGray)
         if(state.active) LinearProgressIndicator(progress=state.progress/100f,modifier=Modifier.fillMaxWidth())
-        if(!LocalModel.ready(context) && !state.active) Button(onClick={runCatching {LocalModel.start(context);state=LocalModel.state(context)}.onFailure {onError(it.message ?: context.uiString(R.string.download_not_started))}},shape=RoundedCornerShape(12.dp)){Text(context.uiString(R.string.download_model))}
+        if(!LocalModel.ready(context) && !state.active) Button(onClick={downloadDialog=true},shape=RoundedCornerShape(12.dp)){Text(context.uiString(R.string.download_model))}
+        if(state.waitingForWifi) TextButton(onClick={downloadDialog=true}){Text(context.uiString(R.string.download_mobile))}
         if(state.active) TextButton(onClick={LocalModel.cancel(context);state=LocalModel.state(context)}){Text(context.uiString(R.string.cancel_download))}
         Button(onClick=onPickModel,shape=RoundedCornerShape(12.dp)){Text(context.uiString(R.string.import_model))}
         if(LocalModel.ready(context)) {
+            Button(enabled=!checkingModel,onClick={scope.launch {
+                checkingModel=true
+                try {
+                    val backend=withContext(Dispatchers.IO) {ProcessingGuard.exclusive {LocalAi.verify(context)}}
+                    onMessage(context.uiString(R.string.model_check_success,backend))
+                } catch(error:Exception) {onError(error.message.orEmpty())}
+                finally {checkingModel=false}
+            }}){Text(context.uiString(if(checkingModel) R.string.model_checking else R.string.model_check))}
             Text(context.uiString(if(loaded) R.string.model_in_ram else R.string.model_not_in_ram),fontSize=12.sp,color=appMuted)
             TextButton(enabled=loaded && unloadAllowed,onClick={scope.launch {
                 val unloaded=withContext(Dispatchers.IO) {ProcessingGuard.exclusive {if(ProcessingQueue.canUnload(context,false)) {LocalAi.unload();true} else false}}
