@@ -19,7 +19,7 @@ data class BrainItem(
 data class Segment(val id: Long, val itemId: String, val text: String, val startMs: Long, val page: Int, val source: String)
 data class SavedAnswer(val id: Long, val itemId: String, val question: String, val answer: String, val evidence: String, val model: String, val createdAt: Long)
 
-class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", null, 3) {
+class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE items(id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',summary TEXT NOT NULL DEFAULT '',source_url TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '',body TEXT NOT NULL DEFAULT '',attachment TEXT NOT NULL DEFAULT '',thumbnail TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'saved',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,document_uri TEXT NOT NULL DEFAULT '',pdf_pages INTEGER NOT NULL DEFAULT 0,pending_media TEXT NOT NULL DEFAULT '',source_quality TEXT NOT NULL DEFAULT 'unknown')""")
         db.execSQL("CREATE INDEX items_newest ON items(created_at DESC)")
@@ -27,6 +27,7 @@ class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", n
         db.execSQL("CREATE INDEX segments_item ON segments(item_id)")
         db.execSQL("""CREATE TABLE answers(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id TEXT NOT NULL,question TEXT NOT NULL,answer TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT '',model TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE)""")
         createJobs(db)
+        createReceipts(db)
         db.execSQL("CREATE VIRTUAL TABLE item_fts USING fts4(item_id, title, summary, body)")
     }
     override fun onOpen(db: SQLiteDatabase) { super.onOpen(db); db.execSQL("PRAGMA foreign_keys=ON") }
@@ -40,8 +41,12 @@ class BrainStore(context: Context) : SQLiteOpenHelper(context, "supermens.db", n
             db.execSQL("ALTER TABLE items ADD COLUMN source_quality TEXT NOT NULL DEFAULT 'unknown'")
             createJobs(db)
         }
+        if(oldVersion<4) createReceipts(db)
     }
 
+    private fun createReceipts(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS ingest_receipts(request_id TEXT PRIMARY KEY,item_ids TEXT NOT NULL)")
+    }
     private fun createJobs(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS processing_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id TEXT NOT NULL,kind TEXT NOT NULL,manual INTEGER NOT NULL DEFAULT 0,payload TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'waiting',attempts INTEGER NOT NULL DEFAULT 0,progress TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE)""")
         db.execSQL("CREATE INDEX IF NOT EXISTS jobs_pending ON processing_jobs(state,kind)")

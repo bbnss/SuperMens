@@ -22,4 +22,22 @@ class PublicPageTest {
         val page=PublicPage.parse("<nav>Navigation</nav><article>$body<script>secret</script></article>","https://example.org",false)
         assertEquals(body.trim(),page.text);assertFalse(page.limited)
     }
+    @Test fun redditBodyBeatsTruncatedDescription() {
+        val page=PublicPage.parse("<title>Reddit</title><meta property='og:description' content='short'><shreddit-post post-title='A public post'><div slot='text-body'>The complete post body</div></shreddit-post>","https://www.reddit.com/r/test/comments/123/title/",true)
+        assertEquals("A public post",page.title);assertEquals("The complete post body",page.text);assertFalse(page.limited)
+    }
+    @Test fun linkedinPostAndCoverAreReadWithoutNavigation() {
+        val page=PublicPage.parse("<title>Post</title><nav>Sign in</nav><div class='share-update-card__update-text'>Public LinkedIn text</div><div class='share-update-card'><img src='/cover.jpg'></div>","https://www.linkedin.com/posts/example",true)
+        assertEquals("Public LinkedIn text",page.text);assertEquals(listOf("https://www.linkedin.com/cover.jpg"),page.images)
+    }
+    @Test fun amazonProductImageHasPriorityOverSiteLogo() {
+        val page=PublicPage.parse("<meta property='og:image' content='/logo.png'><span id='productTitle'>Product title</span><ul id='feature-bullets'><li>Product feature</li></ul><img id='landingImage' src='/small.jpg' data-old-hires='/large.jpg'>","https://www.amazon.it/dp/test",false)
+        assertEquals("Product title",page.title);assertTrue(page.text.contains("Product feature"));assertFalse(page.images.any {it.contains("logo")});assertTrue(page.images.contains("https://www.amazon.it/large.jpg"))
+    }
+    @Test fun blockedPageIsNotStoredAsArticleText() {
+        val page=PublicPage.parse("<title>Robot Check</title><article>Enter captcha</article>","https://www.amazon.it/dp/test",false)
+        assertEquals("",page.text);assertEquals("",page.title)
+        val login=PublicPage.parse("<title>Welcome to Reddit</title><main>Log in to continue</main>","https://www.reddit.com/login/",true)
+        assertEquals("",login.text);assertTrue(login.images.isEmpty())
+    }
 }

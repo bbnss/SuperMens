@@ -7,7 +7,7 @@ This project contains the local Android app only, with no backend module.
 - Application ID: `it.supermens.offline`.
 - Minimum SDK: 35 (Android 15); compile and target SDK: 36.
 - Packaged architecture: `arm64-v8a`.
-- Release being prepared: `0.2.3`, version code `5`.
+- Release: `0.2.4`, version code `6`.
 - Toolchain: JDK 17 or later, Android SDK 36 and the included Gradle wrapper.
 
 Configure `JAVA_HOME` and `ANDROID_HOME` for your machine, or use Android Studio. Never commit `local.properties`.
@@ -41,7 +41,7 @@ Missing credentials fail release signing; there is no debug-signature fallback. 
 
 Migrating a debug installation requires exporting the archive, uninstalling, installing the release APK and restoring the archive. The model must be downloaded or imported again; signing material is never part of app backups.
 
-Release 0.2.3 is published with `prerelease=false` and marked latest so Obtainium discovers it by default. Its APK asset has the fixed name `SuperMens.apk`; `versionCode` increases with each update. Keep the experimental status clear in the release notes.
+Release 0.2.4 is published with `prerelease=false` and marked latest so Obtainium discovers it by default. Its APK asset has the fixed name `SuperMens.apk`; `versionCode` increases with each update. Keep the experimental status clear in the release notes.
 
 ## Model and inference
 
@@ -55,7 +55,7 @@ The weights exceed GitHub’s 2 GiB per-release-asset limit (2,583,085,056 bytes
 
 ## Processing and retrieval
 
-SQLite database version 3 preserves posts, segments, answers and legacy attachments while adding persistent jobs, source quality and checkpoints. FTS4 provides keyword and prefix search.
+SQLite database version 4 preserves posts, segments, answers, legacy attachments, persistent jobs, source quality and checkpoints. Version 4 adds atomic import receipts to prevent Activity-result replay while preserving intentional later imports. FTS4 provides keyword and prefix search.
 
 Questions search the complete stored text through overlapping passages. Gemma suggests terms and synonyms; retrieval retains original question terms and nearby context, including page/timestamp references. Insufficient retrieval triggers additional passages and then chunk-based reading. Whole-document questions use chunk-based reading directly. Each retrieval context is bounded to 5,200 UTF-8 bytes as a conservative token estimate. Saved questions and answers appear after the summary.
 
@@ -76,7 +76,7 @@ Missing models and Internet wait without consuming retries; three actual failure
 - Imported photos: WebP up to 2,400 px / quality 85. Online previews: up to 1,600 px / quality 75. EXIF orientation is applied; small images are not enlarged. Inference uses PNG bytes in memory without saving another image.
 - Camera: system capture with a temporary private URI, retaining the compressed image after successful import. Cancellation creates no post.
 - Images: description and OCR without a redundant summary; legacy summaries remain stored.
-- PDFs: extracted text, preview and original reference when persistent permission is granted. A temporary snapshot survives charging waits and is removed after successful extraction. Originals can be relinked; Android grants do not transfer in backups.
+- PDFs: extracted text, preview and original reference when persistent permission is granted. A temporary snapshot survives charging waits and is removed after successful extraction. Originals can be relinked; Android grants do not transfer in backups. New PDFs, including relinked documents, retain references rather than permanent copies; temporary snapshots are discarded after extraction. Older retained attachments remain usable.
 - New videos: temporary working copy, preview up to 720 px, temporary mono AAC/M4A at 16 kHz / 48 kbps. The working video is deleted after preparation; audio after successful transcription. Legacy archived videos remain unchanged. Retranscription later requires the original.
 - ZIP backup: JSON manifest, Markdown notes, saved answers, previews and retained attachments. Pending sources, temporary audio and model weights are excluded.
 - Sharing: all stored segments/answers, including those beyond the detail screen’s visible limit. JPEG plus text or a complete paginated PDF. Share files older than 24 hours are removed at the next share.
@@ -85,15 +85,19 @@ Missing models and Internet wait without consuming retries; three actual failure
 
 ## Sources and privacy
 
-Web acquisition uses Jsoup and redirect-aware Open Graph/Twitter metadata. YouTube tries direct player/caption extraction and an optional configured HTTPS Invidious instance. X tries public syndication, oEmbed and HTML; previews include photos, video posters, linked-article cards and quoted media. Re-sharing a post with a missing/failed preview retries acquisition; full-text status requires an explicit complete-text field. Other socials rely on public metadata and shared text. These sources may be incomplete or blocked.
+Web acquisition uses Jsoup and redirect-aware Open Graph/Twitter metadata. YouTube tries direct player/caption extraction and an optional configured HTTPS Invidious instance. X tries public syndication, oEmbed and HTML; previews include photos, video posters, linked-article cards and quoted media. Re-sharing a post with a missing/failed preview retries acquisition; full-text status requires an explicit complete-text field. LinkedIn and Amazon additionally use public structured metadata and post/product elements. Reddit tries structured public post data, classic public HTML and oEmbed previews; shared titles, HTML and ClipData text are retained. Other socials rely on public metadata and shared text. These sources may be incomplete or blocked.
 
 There is no remote AI endpoint. ML Kit can send technical metrics and contact Google for updates while processing content locally; see [its terms](https://developers.google.com/ml-kit/terms). Websites, model hosting and optional Invidious instances receive ordinary network requests.
 
 ## UI and validation
 
-The home retains two columns, colored type filters, bottom search and a compact add menu. Settings use the current JPEG with a circular clip and slight scaling to exclude its outer white rim. The launcher uses the same artwork with Android’s adaptive mask. The README embeds that original artwork in `docs/assets/supermens-icon.svg` with the same circular mask and scaling, keeping the outer background transparent. Only BBNSS in the footer opens the repository.
+The home retains two columns, colored type filters, bottom search and a rounded add menu. A missing-model banner starts Wi-Fi downloads after a click and asks for mobile/metered consent otherwise. The multiline text editor uses explicit dark-theme colors and retains drafts across Activity recreation. Long text previews are capped at 1,200 characters; expanded text uses lazy 1,600-character display slices with page/timestamp references and collapse/top controls. Copying and exports always use complete stored text. Settings use the current JPEG with a circular clip and slight scaling to exclude its outer white rim. The launcher uses the same artwork with Android’s adaptive mask. The README embeds that original artwork in `docs/assets/supermens-icon.svg` with the same circular mask and scaling, keeping the outer background transparent. Only BBNSS in the footer opens the repository.
 
 Italian is selected for an Italian primary device/app language; other primary languages use English. Existing content keeps its language.
+
+Version 0.2.4 passed 56 JVM tests and 67 Android tests on a separate clean Android 16 / API 36.1 ARM64 emulator, plus debug/release lint with no errors and signed release assembly. Coverage includes long single-segment text, complete copying, expand/collapse/top controls, readable pasted text and draft restoration, model-banner Wi-Fi/mobile consent, transactional acquisition/completion, recovery of stale completed posts, version-3 archive migration, original-file MIME/read grants, and video import followed by three camera captures and Activity recreation. A new explicit import of the same video remains allowed. A signed 0.2.3-to-0.2.4 install retained an existing archive post; the release certificate is unchanged.
+
+Live public-page checks extracted 1,266 text characters and nine image candidates from an Amazon product, and 544 characters plus a cover from a LinkedIn post. Both covers downloaded and decoded through the app's preview function. Reddit's JSON endpoint returned 403 from the test network, and its classic URL redirected to a login page. These pages were rejected rather than summarized; public oEmbed still returned the post title. Full Reddit extraction is covered with structured/HTML fixtures but cannot be guaranteed when Reddit blocks requests. No physical phone was connected, so native Gemma generation quality and the reported camera sequence after speech analysis still need physical-device validation.
 
 Version 0.2.3 passed 46 JVM tests and 47 Android tests on a clean Android 16 / API 36.1 ARM64 emulator, plus signed release assembly and lint. New regressions cover initialization/cleanup failure with CPU fallback, digest validation and cancellation, refusing unverified size-matching weights, preserving an existing model after invalid import, explicit network consent, and X card/video/quoted previews. Live checks of the signed APK recovered a public X article-card preview and downloaded model bytes on Wi-Fi, paused on switching to mobile, and resumed only after consent. Android preallocation was observed directly: a logical 2.58 GB file with only a few MB transferred did not become ready. The certificate matches 0.2.2-alpha.
 

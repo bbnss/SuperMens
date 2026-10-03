@@ -49,7 +49,7 @@ class QueueStorageTest {
         store=BrainStore(context)
         assertEquals("old.mp4",store.get(id)!!.attachment);assertEquals("Original transcript",store.segments(id).single().text)
         assertEquals("Answer",store.answers(id).single().answer);assertTrue(ProcessingQueue.jobs(store).isEmpty())
-        assertEquals(3,store.readableDatabase.version)
+        assertEquals(4,store.readableDatabase.version)
     }
     @Test fun requestsAreDeduplicatedAndManualQuestionPersistsAcrossReopen() {
         val id=store.add("note","Queue fixture",body="Body")
@@ -205,4 +205,79 @@ class QueueStorageTest {
         assertEquals("ready",store.get(id)!!.status);assertTrue(store.segments(id).isEmpty())
     }
 
+    @Test fun importReceiptSurvivesReopenAndAllowsNewExplicitImport() {
+        var operations=0
+        val first=Ingest.once(store,"request-1") {operations++;listOf(Ingest.text(context,store,"Receipt fixture"))}
+        store.close();store=BrainStore(context)
+        assertEquals(first,Ingest.once(store,"request-1") {operations++;error("Must not replay")})
+        val second=Ingest.once(store,"request-2") {operations++;listOf(Ingest.text(context,store,"Receipt fixture"))}
+        assertEquals(2,operations);assertNotEquals(first,second)
+        assertEquals(2,store.list().size);assertEquals(2,ProcessingQueue.jobs(store).size)
+    }
+    @Test fun failedImportDoesNotCommitReceiptOrPartialPosts() {
+        assertTrue(runCatching {Ingest.once(store,"failed-request") {store.add("note","Partial");error("Failed")}}.isFailure)
+        assertTrue(store.list().isEmpty())
+        val ids=Ingest.once(store,"failed-request") {listOf(store.add("note","Retry"))}
+        assertEquals("Retry",store.get(ids.single())!!.title)
+    }
+    @Test fun readyPostSettlesStaleProcessButKeepsNewQuestionAndSummary() {
+        val id=store.add("video","Ready fixture")
+        ProcessingQueue.enqueue(context,id,enrichOnly=true)
+        store.update(id,summary="Completed summary",status="ready")
+        ProcessingQueue.question(context,id,"New question")
+        ProcessingQueue.summary(context,id)
+        ProcessingQueue.reconcile(context,store)
+        assertEquals("done",ProcessingQueue.jobs(store).single {it.kind=="process"}.state)
+        assertEquals("waiting",ProcessingQueue.jobs(store).single {it.kind=="question"}.state)
+        assertEquals("waiting",ProcessingQueue.jobs(store).single {it.kind=="summary"}.state)
+    }
+    @Test fun acquisitionCompletionPublishesPendingBeforeProcessIsEligible() {
+        val id=store.add("web","Acquisition",sourceUrl="https://example.org")
+        ProcessingQueue.enqueue(context,id)
+        val acquire=ProcessingQueue.jobs(store).single {it.kind=="acquire"}
+        ProcessingQueue.complete(store,acquire) {store.update(id,status="pending_ai")}
+        assertEquals("pending_ai",store.get(id)!!.status)
+        assertEquals("process",QueueOrder.next(ProcessingQueue.jobs(store),emptySet(),{true},{0})!!.kind)
+        val process=ProcessingQueue.jobs(store).single {it.kind=="process"}
+        ProcessingQueue.complete(store,process) {store.update(id,summary="Finished",status="ready")}
+        assertEquals("ready",store.get(id)!!.status);assertTrue(ProcessingQueue.jobs(store).all {it.state=="done"})
+    }
+    @Test fun failedCompletionRollsBackPublishedStateAndReceipt() {
+        val id=store.add("note","Atomic fixture")
+        ProcessingQueue.enqueue(context,id)
+        val job=ProcessingQueue.jobs(store).single()
+        assertTrue(runCatching {ProcessingQueue.complete(store,job) {store.update(id,status="ready");error("Publication failure")}}.isFailure)
+        assertEquals("pending_ai",store.get(id)!!.status);assertEquals("waiting",ProcessingQueue.jobs(store).single().state)
+    }
+    @Test fun oldPendingStatusWithCompletedSummaryIsRecoveredWithoutRetranscribing() {
+        val id=store.add("video","Previously completed video")
+        ProcessingQueue.enqueue(context,id,enrichOnly=true)
+        val job=ProcessingQueue.jobs(store).single()
+        ProcessingQueue.complete(store,job) {store.update(id,status="ready",summary="Final video summary")}
+        store.update(id,status="pending_ai")
+        ProcessingQueue.reconcile(context,store)
+        assertEquals("ready",store.get(id)!!.status)
+        assertEquals(listOf(job.id),ProcessingQueue.jobs(store).map {it.id})
+    }
+    @Test fun versionThreeUpgradePreservesArchiveAndQueueWhileAddingReceipts() {
+        val id=store.add("note","Existing archive",body="Existing body")
+        store.update(id,summary="Existing summary",status="ready");store.addAnswer(id,"Question","Answer","Evidence","model")
+        ProcessingQueue.question(context,id,"Pending question")
+        store.close()
+        SQLiteDatabase.openDatabase(context.getDatabasePath("supermens.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->db.execSQL("DROP TABLE ingest_receipts");db.version=3}
+        store=BrainStore(context)
+        assertEquals(4,store.readableDatabase.version);assertEquals("Existing summary",store.get(id)!!.summary)
+        assertEquals("Answer",store.answers(id).single().answer);assertEquals("Pending question",ProcessingQueue.jobs(store).single().payload)
+        assertEquals(listOf(id),Ingest.once(store,"upgrade-request") {listOf(id)})
+    }
+    @Test fun sharedRedditTitleHtmlAndClipLinkArePreserved() {
+        val intent=android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type="text/plain";putExtra(android.content.Intent.EXTRA_TITLE,"Reddit title")
+            putExtra(android.content.Intent.EXTRA_HTML_TEXT,"<p>Full shared body</p><p>https://www.reddit.com/r/test/comments/fixture/</p>")
+        }
+        val id=Ingest.intake(context,store,intent).single()
+        assertTrue(store.get(id)!!.body.contains("Reddit title"));assertTrue(store.get(id)!!.body.contains("Full shared body"))
+        val linkIntent=android.content.Intent(android.content.Intent.ACTION_SEND).apply {type="text/plain";clipData=android.content.ClipData.newRawUri("Link",android.net.Uri.parse("https://www.reddit.com/r/test/comments/another/"))}
+        val link=Ingest.intake(context,store,linkIntent).single();assertEquals("web",store.get(link)!!.type)
+    }
 }

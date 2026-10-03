@@ -20,10 +20,12 @@ import java.io.IOException;
 public class TestDocumentsProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
     private synchronized File fixture(Uri uri) throws IOException {
-        File file = new File(getContext().getFilesDir(), "test-" + uri.getLastPathSegment() + ".pdf");
+        File file = new File(getContext().getFilesDir(), "test-" + uri.getLastPathSegment() + ("video".equals(uri.getLastPathSegment()) ? ".mp4" : ".pdf"));
         if (!file.exists()) {
             try (FileOutputStream output = new FileOutputStream(file)) {
-                if ("broken".equals(uri.getLastPathSegment())) output.write("invalid pdf".getBytes());
+                if ("video".equals(uri.getLastPathSegment())) {
+                    try (java.io.InputStream input = getContext().getAssets().open("video-silent.mp4")) {input.transferTo(output);}
+                } else if ("broken".equals(uri.getLastPathSegment())) output.write("invalid pdf".getBytes());
                 else {
                     PdfDocument document = new PdfDocument();
                     try {
@@ -55,12 +57,12 @@ public class TestDocumentsProvider extends ContentProvider {
             return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
         } catch (IOException error) { throw new java.io.FileNotFoundException(error.toString()); }
     }
-    @Override public String getType(Uri uri) { return "application/pdf"; }
+    @Override public String getType(Uri uri) { return "video".equals(uri.getLastPathSegment()) ? "video/mp4" : "application/pdf"; }
     @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) {
         String[] columns = projection != null ? projection : new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE};
         MatrixCursor result = new MatrixCursor(columns);
         Object[] values = new Object[columns.length];
-        for (int index = 0; index < columns.length; index++) values[index] = OpenableColumns.DISPLAY_NAME.equals(columns[index]) ? "document.pdf" : 0L;
+        for (int index = 0; index < columns.length; index++) values[index] = OpenableColumns.DISPLAY_NAME.equals(columns[index]) ? ("video".equals(uri.getLastPathSegment()) ? "video-silent.mp4" : "document.pdf") : 0L;
         result.addRow(values); return result;
     }
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }

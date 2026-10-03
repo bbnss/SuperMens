@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -82,7 +83,7 @@ class HomeUiTest {
             waitText("Descrizione")
             rule.onNodeWithText("Old redundant summary").assertDoesNotExist()
             rule.onNodeWithText("Rigenera riassunto").assertDoesNotExist()
-            rule.onNodeWithText("Copia testo OCR").performScrollTo().performClick()
+            rule.onNodeWithTag("detail-content").performScrollToNode(hasText("Copia testo OCR"));rule.onNodeWithText("Copia testo OCR").performClick()
             rule.onNodeWithText("Testo copiato").assertIsDisplayed()
             var copied=""
             instrumentation.uiAutomation.adoptShellPermissionIdentity("android.permission.READ_CLIPBOARD_IN_BACKGROUND")
@@ -130,5 +131,53 @@ class HomeUiTest {
             assertEquals(before.size+1,store.list().size)
             assertEquals(0,java.io.File(context.cacheDir,"camera").listFiles()?.size ?: 0)
         } finally {scenario.close();instrumentation.removeMonitor(monitor);store.list().filter {it.id !in before}.forEach {delete(store,it.id)};store.close()}
+    }
+    @Test fun importedVideoIsNotReplayedAfterRecreationAndThreeCameraCaptures() {
+        val store=BrainStore(context);val before=store.list().map {it.id}.toSet()
+        val video=Uri.parse("content://it.supermens.offline.test.documents/video")
+        context.grantUriPermission(context.packageName,video,Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val monitor=object:Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent:Intent):Instrumentation.ActivityResult? {
+                if(intent.action==Intent.ACTION_OPEN_DOCUMENT) return Instrumentation.ActivityResult(Activity.RESULT_OK,Intent().setData(video).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                if(intent.action!=MediaStore.ACTION_IMAGE_CAPTURE) return null
+                val output=intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT,Uri::class.java)!!
+                val bitmap=Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.BLUE)
+                context.contentResolver.openOutputStream(output)!!.use {bitmap.compress(Bitmap.CompressFormat.JPEG,90,it)};bitmap.recycle()
+                return Instrumentation.ActivityResult(Activity.RESULT_OK,Intent())
+            }
+        }
+        instrumentation.addMonitor(monitor)
+        val scenario=launch()
+        try {
+            rule.onNodeWithContentDescription("Aggiungi contenuto").performClick();rule.onNodeWithText("Importa file").performClick()
+            rule.waitUntil(25000) {store.list().any {it.id !in before && it.type=="video" && it.status=="ready"}}
+            val videoId=store.list().single {it.id !in before && it.type=="video"}.id
+            repeat(3) {index ->
+                scenario.recreate();waitText("Cerca nei post")
+                rule.onNodeWithContentDescription("Aggiungi contenuto").performClick();rule.onNodeWithText("Fotocamera").performClick()
+                rule.waitUntil(25000) {store.list().count {it.id !in before && it.type=="image"}==index+1}
+                assertEquals(listOf(videoId),store.list().filter {it.id !in before && it.type=="video"}.map {it.id})
+            }
+            rule.onNodeWithContentDescription("Aggiungi contenuto").performClick();rule.onNodeWithText("Importa file").performClick()
+            rule.waitUntil(25000) {store.list().count {it.id !in before && it.type=="video"}==2}
+        } finally {scenario.close();instrumentation.removeMonitor(monitor);store.list().filter {it.id !in before}.forEach {ProcessingQueue.remove(context,it.id)};store.close()}
+    }
+    @Test fun pastedTextIsVisibleAndDraftSurvivesRecreation() {
+        val store=BrainStore(context);val before=store.list().map {it.id}.toSet()
+        val text="Visible pasted text "+"long text ".repeat(200)
+        val scenario=launch()
+        try {
+            scenario.onActivity {(it.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("fixture",text))}
+            rule.onNodeWithContentDescription("Aggiungi contenuto").performClick();rule.onNodeWithText("Nota scritta").performClick()
+            rule.onNodeWithText("Salva").assertIsNotEnabled()
+            rule.onNodeWithText("Incolla").performClick();rule.onNodeWithTag("text-entry").assertTextContains(text)
+            val snapshot=java.io.File(context.getExternalFilesDir(null),"review-text-entry.png")
+            snapshot.outputStream().use {rule.onNodeWithTag("text-entry").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it)}
+            scenario.recreate();rule.onNodeWithTag("text-entry").assertTextContains(text)
+            rule.onNodeWithText("Salva").performClick()
+            rule.waitUntil(15000) {store.list().any {it.id !in before && it.body==text}}
+            assertEquals(1,store.list().count {it.id !in before})
+        } finally {scenario.close();store.list().filter {it.id !in before}.forEach {ProcessingQueue.remove(context,it.id)};store.close()}
     }
 }

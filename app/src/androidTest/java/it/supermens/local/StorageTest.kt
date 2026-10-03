@@ -182,7 +182,7 @@ class StorageTest {
         assertFalse(DocumentStorage.persist(context,uri))
         val id=Ingest.file(context,store,uri)
         val item=store.get(id)!!
-        assertEquals("",item.documentUri);assertEquals("",item.attachment)
+        assertEquals(uri.toString(),item.documentUri);assertEquals("",item.attachment)
         val pending=File(item.pendingMedia);assertTrue(pending.isFile)
         PdfTextExtractor.extract(context,store,item.copy(attachment=item.pendingMedia),ocr={ "Testo condiviso" })
         pending.delete();store.update(id,pendingMedia="")
@@ -274,4 +274,24 @@ class StorageTest {
         } finally {capture.delete()}
     }
 
+    @Test fun fileViewerIntentKeepsPdfReferenceMimeAndReadGrant() {
+        val actual=InstrumentationRegistry.getInstrumentation().targetContext
+        val uri=grantedReference("viewer")
+        try {
+            val id=store.add("pdf","Original PDF",documentUri=uri.toString())
+            val intent=PostFile.intent(actual,store.get(id)!!)
+            assertEquals(Intent.ACTION_VIEW,intent.action);assertEquals(uri,intent.data);assertEquals("application/pdf",intent.type)
+            assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0);assertEquals(uri,intent.clipData!!.getItemAt(0).uri)
+        } finally {context.contentResolver.releasePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+    }
+    @Test fun fileViewerUsesAttachmentMimeAndReportsMissingOriginal() {
+        val actual=InstrumentationRegistry.getInstrumentation().targetContext
+        val attachment=File(File(actual.filesDir,"attachments").apply {mkdirs()},"viewer-${UUID.randomUUID()}.txt").apply {writeText("File fixture")}
+        try {
+            val id=store.add("file","Document.txt",attachment=attachment.absolutePath)
+            assertEquals("text/plain",PostFile.intent(actual,store.get(id)!!).type)
+            val missing=store.add("pdf","Missing PDF")
+            assertTrue(runCatching {PostFile.intent(actual,store.get(missing)!!)}.exceptionOrNull() is java.io.FileNotFoundException)
+        } finally {attachment.delete()}
+    }
 }

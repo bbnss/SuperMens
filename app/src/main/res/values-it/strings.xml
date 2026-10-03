@@ -285,4 +285,16 @@
     <string name="model_check">Verifica modello</string>
     <string name="model_checking">Verifica del modello…</string>
     <string name="model_check_success">Modello funzionante · %1$s</string>
+    <string name="show_more">Mostra di più</string>
+    <string name="show_less">Mostra meno</string>
+    <string name="back_to_top">Torna in cima</string>
+    <string name="model_banner_title">Attiva l’intelligenza locale</string>
+    <string name="model_banner_hint">Scarica Gemma 4 E2B (2,58 GB) per riassumere e analizzare i contenuti su questo telefono.</string>
+    <string name="later">Più tardi</string>
+    <string name="text_entry_hint">Scrivi o incolla un testo o un link, poi salvalo.</string>
+    <string name="paste_text">Incolla</string>
+    <string name="character_count">%1$d caratteri</string>
+    <string name="saving_text">Salvataggio…</string>
+    <string name="no_file_viewer">Nessuna app può aprire questo file. Installa un visualizzatore compatibile.</string>
+    <string name="original_not_retained">Originale non collegato. Ricollega il file per aprirlo.</string>
 </resources>

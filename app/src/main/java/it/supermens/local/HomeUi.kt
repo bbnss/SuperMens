@@ -20,6 +20,7 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -73,7 +74,7 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
     filter: String, onFilter: (String)->Unit, entries: List<ActivityEntry>, recording: Boolean,
     dictating: Boolean, dictationStatus: String, savingPhoto: Boolean, onActivities: ()->Unit, onStop: ()->Unit,
     onOpen: (BrainItem)->Unit, onNote: ()->Unit, onRecord: ()->Unit, onDictate: ()->Unit,
-    onFile: ()->Unit, onCamera: ()->Unit, onPaste: ()->Unit
+    onFile: ()->Unit, onCamera: ()->Unit, onPaste: ()->Unit, modelBanner: @Composable ()->Unit = {}
 ) {
     val context=LocalContext.current
     var menu by remember { mutableStateOf(false) }
@@ -86,6 +87,7 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                 }
             }
         }
+        modelBanner()
         ActivityStrip(entries,recording,dictating,dictationStatus,savingPhoto,onActivities,onStop)
         if(query.isNotBlank() || filter!="all") Text(context.uiString(R.string.result_count,items.size,total),Modifier.padding(start=20.dp,top=6.dp),color=appMuted,fontSize=12.sp)
         if(items.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center) {
@@ -105,12 +107,14 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                     Surface(color=appAccent,shape=RoundedCornerShape(18.dp)) {
                         IconButton(onClick={menu=true;keyboard?.hide()},modifier=Modifier.size(56.dp)) { UiIcon(R.drawable.ui_add,context.uiString(R.string.add_content),Modifier.size(26.dp),appBackground) }
                     }
-                    DropdownMenu(menu,{menu=false},modifier=Modifier.width(230.dp).background(appPanel)) {
+                    MaterialTheme(shapes=MaterialTheme.shapes.copy(small=RoundedCornerShape(20.dp))) {
+                    DropdownMenu(menu,{menu=false},modifier=Modifier.width(260.dp).background(appPanel).padding(6.dp)) {
                         listOf(Triple(context.uiString(R.string.written_note),R.drawable.ui_note,onNote),Triple(context.uiString(R.string.voice_note),R.drawable.ui_mic,onRecord),Triple(context.uiString(R.string.dictation),R.drawable.ui_dictation,onDictate),Triple(context.uiString(R.string.import_file),R.drawable.ui_file,onFile),Triple(context.uiString(R.string.camera),R.drawable.ui_camera,onCamera),Triple(context.uiString(R.string.paste_content),R.drawable.ui_paste,onPaste)).forEach { (label,icon,action) ->
-                            DropdownMenuItem(onClick={menu=false;action()},enabled=!(recording || dictating) || label==context.uiString(R.string.written_note) || label==context.uiString(R.string.paste_content)) {
-                                UiIcon(icon,tint=appMuted);Spacer(Modifier.width(14.dp));Text(label,fontSize=14.sp)
+                            DropdownMenuItem(modifier=Modifier.padding(vertical=2.dp).clip(RoundedCornerShape(14.dp)).background(appAccentSurface).heightIn(min=52.dp),onClick={menu=false;action()},enabled=!(recording || dictating) || label==context.uiString(R.string.written_note) || label==context.uiString(R.string.paste_content)) {
+                                UiIcon(icon,tint=appAccent);Spacer(Modifier.width(14.dp));Text(label,fontSize=15.sp)
                             }
                         }
+                    }
                     }
                 }
             }

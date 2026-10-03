@@ -24,6 +24,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,8 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -76,7 +77,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.roundToInt
+import java.util.UUID
 
 private val bg=appBackground; private val panel=appPanel; private val accent=appAccent
 
@@ -84,6 +85,7 @@ class MainActivity:ComponentActivity() {
     override fun attachBaseContext(newBase: Context) { super.attachBaseContext(AppLanguage.context(newBase)) }
     private var shareVersion by mutableIntStateOf(0)
     private val pendingShares=mutableListOf<Intent>()
+    private val inFlightShares=mutableSetOf<String>()
     private var recorder:MediaRecorder?=null
     private var recordingFile:File?=null
     private var recording by mutableStateOf(false)
@@ -104,18 +106,29 @@ class MainActivity:ComponentActivity() {
             val model = LocalModel.file(this)
             "file=${model.absolutePath} exists=${model.exists()} bytes=${model.length()} downloadId=${LocalModel.downloadId(this)} state=${LocalModel.state(this)}"
         }.getOrElse { "diagnostic error=${it.message}" })
-        receiveShare(intent)
+        if(savedInstanceState==null) receiveShare(intent) else {
+            savedInstanceState.getParcelableArrayList("pendingShares",Intent::class.java)?.let {pendingShares.addAll(it)}
+            if(pendingShares.isNotEmpty()) shareVersion++
+        }
         setContent { App(this) }
     }
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent); setIntent(intent);receiveShare(intent) }
     private fun receiveShare(intent:Intent) {
-        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) pendingShares+=Intent(intent)
+        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) pendingShares+=Intent(intent).apply {
+            putExtra("supermens_request_id",UUID.randomUUID().toString())
+        }
         shareVersion++
     }
     fun shareSignal()=shareVersion
-    fun consumeShares():List<Intent> = pendingShares.toList().also {
-        pendingShares.clear()
-        if(intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE) intent=Intent(Intent.ACTION_MAIN)
+    override fun onSaveInstanceState(outState:Bundle) {
+        outState.putParcelableArrayList("pendingShares",ArrayList(pendingShares))
+        super.onSaveInstanceState(outState)
+    }
+    fun consumeShares():List<Intent> = pendingShares.filter {inFlightShares.add(it.getStringExtra("supermens_request_id")!!)}.map {Intent(it)}
+    fun acknowledgeShare(requestId:String) {
+        pendingShares.removeAll {it.getStringExtra("supermens_request_id")==requestId}
+        inFlightShares.remove(requestId)
+        if(pendingShares.isEmpty() && (intent.action==Intent.ACTION_SEND || intent.action==Intent.ACTION_SEND_MULTIPLE)) intent=Intent(Intent.ACTION_MAIN)
     }
     fun isRecording()=recording
     fun isDictating()=dictating
@@ -277,7 +290,7 @@ class MainActivity:ComponentActivity() {
         val running=jobs.firstOrNull {it.state=="running"}
         val waiting=jobs.firstOrNull {it.state=="waiting"}
         when {
-            running!=null -> ActivityEntry(item,running.progress.ifBlank {PostContent.stage(item,AppLanguage.code(context))},running=true)
+            running!=null -> ActivityEntry(item,running.progress.ifBlank {if(running.kind=="question") context.uiString(R.string.queued) else PostContent.stage(item,AppLanguage.code(context))},running=true)
             waiting!=null -> ActivityEntry(item,when {
                 waiting.kind=="acquire" -> context.uiString(R.string.acquiring_source)
                 !ProcessingQueue.eligible(context,waiting) -> context.uiString(R.string.wait_charging)
@@ -289,6 +302,8 @@ class MainActivity:ComponentActivity() {
             else -> null
         }
     }.sortedWith(compareBy<ActivityEntry> {if(it.running) 0 else if(it.failed) 1 else 2}.thenBy {it.item.createdAt})
+    var modelBannerDismissed by rememberSaveable {mutableStateOf(false)}
+    var savingNote by remember {mutableStateOf(false)}
     var showActivities by remember { mutableStateOf(false) }
     var lastError by rememberSaveable { mutableStateOf("") }
     fun reportError(text: String) { lastError=text.ifBlank { context.uiString(R.string.operation_failed) };message=lastError }
@@ -330,7 +345,27 @@ class MainActivity:ComponentActivity() {
             }
         } else if(activity.isDictating()) activity.stopDictation()
     }
-    val filePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris->scope.launch(Dispatchers.IO) { val results=uris.map { runCatching { Ingest.file(context,store,it) } };withContext(Dispatchers.Main){refresh++;if(uris.isNotEmpty()) message=context.uiString(R.string.file_import_count,results.count { it.isSuccess },results.size);results.firstOrNull { it.isFailure }?.exceptionOrNull()?.let { lastError=it.message ?: context.uiString(R.string.import_failed) }} } }
+    var fileRequest by rememberSaveable {mutableStateOf<String?>(null)}
+    var pendingFiles by rememberSaveable {mutableStateOf(arrayListOf<String>())}
+    val filePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {uris ->
+        if(fileRequest!=null) {
+            uris.forEach {if(it.scheme=="content") DocumentStorage.persist(context,it)}
+            pendingFiles=ArrayList(uris.map {it.toString()})
+            if(uris.isEmpty()) fileRequest=null
+        }
+    }
+    LaunchedEffect(fileRequest,pendingFiles) {
+        val request=fileRequest
+        if(request!=null && pendingFiles.isNotEmpty()) {
+            val results=pendingFiles.mapIndexed {index,reference ->
+                runCatching {withContext(Dispatchers.IO) {Ingest.once(store,"$request:$index") {listOf(Ingest.file(context,store,Uri.parse(reference)))}}}
+                    .onFailure {if(it is CancellationException) throw it}
+            }
+            refresh++;message=context.uiString(R.string.file_import_count,results.count {it.isSuccess},results.size)
+            results.firstOrNull {it.isFailure}?.exceptionOrNull()?.let {reportError(it.message ?: context.uiString(R.string.import_failed))}
+            pendingFiles=arrayListOf();fileRequest=null
+        }
+    }
     var relinkTarget by remember { mutableStateOf<String?>(null) }
     val pdfPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri->
         val target=relinkTarget;relinkTarget=null
@@ -366,9 +401,10 @@ class MainActivity:ComponentActivity() {
         val shares=activity.consumeShares()
         if(shares.isNotEmpty()) scope.launch {
             for(intent in shares) {
-                runCatching {withContext(Dispatchers.IO){Ingest.intake(context,store,intent)}}
+                runCatching {withContext(Dispatchers.IO){Ingest.once(store,intent.getStringExtra("supermens_request_id")!!) {Ingest.intake(context,store,intent)}}}
                     .onSuccess {ids ->if(ids.isNotEmpty()) {refresh++;screen="home";current=ids.first();message=context.uiString(R.string.content_saved)}}
-                    .onFailure {reportError(it.message.orEmpty())}
+                    .onFailure {if(it is CancellationException) throw it;reportError(it.message.orEmpty())}
+                activity.acknowledgeShare(intent.getStringExtra("supermens_request_id")!!)
             }
         }
     }
@@ -392,7 +428,7 @@ class MainActivity:ComponentActivity() {
                         {current=it.id;screen="detail"},{showNote=true},
                         {if(!activity.isDictating()) permission.launch(Manifest.permission.RECORD_AUDIO)},
                         {if(!activity.isRecording()) dictationPermission.launch(Manifest.permission.RECORD_AUDIO)},
-                        {filePicker.launch(arrayOf("application/pdf","image/*","audio/*","video/*","text/*"))},
+                        {fileRequest=UUID.randomUUID().toString();filePicker.launch(arrayOf("application/pdf","image/*","audio/*","video/*","text/*"))},
                         {launchCamera()},
                         {
                             val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -401,7 +437,7 @@ class MainActivity:ComponentActivity() {
                                 runCatching { withContext(Dispatchers.IO){Ingest.text(context,store,pasted)} }
                                     .onSuccess {refresh++;message=context.uiString(R.string.pasted_saved)}.onFailure {reportError(it.message.orEmpty())}
                             } else message=context.uiString(R.string.clipboard_empty)
-                        })
+                        }, modelBanner={ModelBanner(modelBannerDismissed,{modelBannerDismissed=true},::reportError)})
                     "detail"-> current?.let { id->Detail(context,store,id,refresh,{refresh++},{message=it},{reportError(it)},{transcriptPicker.launch(arrayOf("text/*","application/x-subrip"))},{relinkTarget=id;pdfPicker.launch(arrayOf("application/pdf"))},{relinkTarget=id;videoPicker.launch(arrayOf("video/*"))},{screen="home";current=null;refresh++}) }
                     "settings"->SettingsScreen({message=it},{reportError(it)},{exportPicker.launch("supermens-locale-${System.currentTimeMillis()}.zip")},{importPicker.launch(arrayOf("application/zip"))},{modelPicker.launch(arrayOf("application/octet-stream","*/*"))})
                 }
@@ -430,9 +466,17 @@ class MainActivity:ComponentActivity() {
             }
         },confirmButton={TextButton(onClick={showActivities=false}){Text(context.uiString(R.string.close))}})
         if(cameraRetry && cameraPath!=null) AlertDialog(onDismissRequest={cameraRetry=false},title={Text(context.uiString(R.string.photo_to_save))},text={Text(context.uiString(R.string.photo_retry_explanation))},confirmButton={TextButton(onClick={saveCamera()}){Text(context.uiString(R.string.retry))}},dismissButton={TextButton(onClick={cameraPath?.let { File(it).delete() };cameraPath=null;cameraRetry=false}){Text(context.uiString(R.string.delete_capture))}})
-        if(showNote) AlertDialog(onDismissRequest={showNote=false},title={Text(context.uiString(R.string.new_note))},text={OutlinedTextField(noteText,{noteText=it},label={Text(context.uiString(R.string.write_here))},modifier=Modifier.fillMaxWidth())},confirmButton={TextButton(onClick={if(noteText.isNotBlank())scope.launch {
-        runCatching { withContext(Dispatchers.IO){Ingest.text(context,store,noteText)} }.onSuccess {refresh++;noteText="";showNote=false;message=context.uiString(R.string.note_saved)}.onFailure {reportError(it.message.orEmpty())}
-        }}){Text(context.uiString(R.string.save))}},dismissButton={TextButton(onClick={showNote=false}){Text(context.uiString(R.string.cancel))}})
+        if(showNote) TextEntryDialog(context.uiString(R.string.new_note),noteText,{noteText=it},savingNote,onSave={
+            if(!savingNote && noteText.isNotBlank()) {
+                savingNote=true
+                scope.launch {
+                    runCatching {withContext(Dispatchers.IO) {Ingest.text(context,store,noteText)}}
+                        .onSuccess {refresh++;noteText="";showNote=false;message=context.uiString(R.string.note_saved)}
+                        .onFailure {reportError(it.message.orEmpty())}
+                    savingNote=false
+                }
+            }
+        },onDismiss={showNote=false})
     }
 
 }
@@ -461,7 +505,7 @@ class MainActivity:ComponentActivity() {
     var deleting by remember(id) {mutableStateOf(false)}
     var shareMenu by remember(id) {mutableStateOf(false)}
     var integrateText by remember(id) {mutableStateOf(false)}
-    var addedText by remember(id) {mutableStateOf("")}
+    var addedText by rememberSaveable(id) {mutableStateOf("")}
     fun share(pdf:Boolean) {
         sharing=true;shareMenu=false
         scope.launch {
@@ -471,21 +515,22 @@ class MainActivity:ComponentActivity() {
             sharing=false
         }
     }
-    var answerOffset by remember(id){mutableIntStateOf(0)}
     var scrollRequest by remember(id){mutableIntStateOf(0)}
-    val scrollState=key(id){rememberScrollState()}
+    val scrollState=key(id){rememberLazyListState()}
     val focusManager=LocalFocusManager.current
     val keyboard=LocalSoftwareKeyboardController.current
     LaunchedEffect(id,scrollRequest) {
         if(scrollRequest>0) {
             withFrameNanos { }
-            scrollState.animateScrollTo(answerOffset)
+            scrollState.animateScrollToItem(1)
         }
     }
-    LaunchedEffect(pendingQuestion,answers.size) {if(pendingQuestion!=null || scrollRequest>0) {withFrameNanos {};scrollState.animateScrollTo(answerOffset)}}
+    LaunchedEffect(pendingQuestion,answers.size) {if(pendingQuestion!=null || scrollRequest>0) {withFrameNanos {};scrollState.animateScrollToItem(1)}}
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
-    var visibleSegments by remember(id){mutableIntStateOf(80)}
-    var showFullBody by remember(id){mutableStateOf(false)}
+    var showFullBody by rememberSaveable(id){mutableStateOf(false)}
+    val displayBlocks=remember(textSegments,copyText) {TranscriptDisplay.blocks(textSegments,copyText)}
+    val expandable=TranscriptDisplay.expandable(displayBlocks)
+    val shownBlocks=if(showFullBody) displayBlocks else TranscriptDisplay.preview(displayBlocks)
     DisposableEffect(id){onDispose {player?.release()} }
     item?.let { i->
         val language=AppLanguage.code(context)
@@ -499,7 +544,8 @@ class MainActivity:ComponentActivity() {
             }
         }
         Column(Modifier.fillMaxSize().imePadding()) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scrollState).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            LazyColumn(state=scrollState,modifier=Modifier.weight(1f).fillMaxWidth().testTag("detail-content"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                item(key="header") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 if(i.type=="note" || i.type=="audio" || (i.type=="video" && i.thumbnail.isBlank())) {
                     Box(Modifier.size(54.dp).background(appAccentSurface,RoundedCornerShape(16.dp)),contentAlignment=Alignment.Center){UiIcon(typeIcon(i.type),modifier=Modifier.size(28.dp))}
                 } else PostPreview(i,Modifier.fillMaxWidth().height(180.dp))
@@ -513,28 +559,31 @@ class MainActivity:ComponentActivity() {
                     }
                 }
                 if(i.sourceQuality.endsWith("_preview_failed")) Text(context.uiString(R.string.preview_unavailable),fontSize=12.sp,color=appMuted)
-                if(i.type=="x" && !i.sourceQuality.startsWith("complete")) {
+                if((i.type=="x" || PublicPage.supportedHost(i.sourceUrl)) && !i.sourceQuality.startsWith("complete")) {
                     Text(context.uiString(R.string.source_incomplete),fontSize=12.sp,color=appMuted)
                     TextButton(onClick={integrateText=true}) {Text(context.uiString(R.string.integrate_text))}
                 }
+                if(i.sourceUrl.isNotBlank()) TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(i.sourceUrl)))}}) {Text(context.uiString(R.string.open_source))}
+                if(i.type in setOf("pdf","video") || i.attachment.isNotBlank()) {
+                    TextButton(onClick={
+                        runCatching {context.startActivity(PostFile.intent(context,i))}.onFailure {error ->
+                            if(error is android.content.ActivityNotFoundException) onError(context.uiString(R.string.no_file_viewer))
+                            else {onError(error.message.orEmpty());if(i.type=="pdf") onRelinkPdf() else if(i.type=="video") onRelinkVideo()}
+                        }
+                    }) {Text(context.uiString(R.string.open_file))}
+                }
                 if(i.type=="video" && i.attachment.isBlank()) {
-                    if(i.documentUri.isNotBlank()) TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW).apply {setDataAndType(Uri.parse(i.documentUri),"video/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure {onError(context.uiString(R.string.video_relink_hint))}}) {Text(context.uiString(R.string.open_source))}
                     TextButton(enabled=!busy,onClick=onRelinkVideo) {Text(context.uiString(R.string.relink_video))}
                     if(i.documentUri.isBlank()) Text(context.uiString(R.string.video_relink_hint),fontSize=12.sp,color=appMuted)
                 }
-                if(i.sourceUrl.isNotBlank()) TextButton(onClick={runCatching { context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(i.sourceUrl))) }}){Text(context.uiString(R.string.open_source))}
                 if(i.type=="pdf") {
-                    if(i.documentUri.isNotBlank() || i.attachment.isNotBlank()) TextButton(onClick={
-                        runCatching {
-                            val uri=if(i.documentUri.isNotBlank()) Uri.parse(i.documentUri) else FileProvider.getUriForFile(context,"${context.packageName}.files",File(i.attachment))
-                            context.contentResolver.openFileDescriptor(uri,"r")?.close() ?: error(context.uiString(R.string.pdf_unavailable))
-                            context.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri,"application/pdf");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
-                        }.onFailure { onError(context.uiString(R.string.pdf_relink_hint)) }
-                    }) { Text(context.uiString(R.string.open_pdf)) }
-                    TextButton(enabled=!busy,onClick=onRelinkPdf) { Text(context.uiString(R.string.relink_pdf)) }
-                    if(i.pdfPages>0) Text(context.uiString(R.string.pdf_page_count,i.pdfPages,if(i.documentUri.isNotBlank()) context.uiString(R.string.original_linked) else context.uiString(R.string.copy_kept)),fontSize=12.sp,color=Color.LightGray)
+                    TextButton(enabled=!busy,onClick=onRelinkPdf) {Text(context.uiString(R.string.relink_pdf))}
+                    if(i.documentUri.isBlank() && i.attachment.isBlank()) Text(context.uiString(R.string.original_not_retained),fontSize=12.sp,color=appMuted)
+                    if(i.pdfPages>0) Text(context.uiString(R.string.pdf_page_count,i.pdfPages,if(i.documentUri.isNotBlank()) context.uiString(R.string.original_linked) else if(i.attachment.isNotBlank()) context.uiString(R.string.copy_kept) else context.uiString(R.string.original_not_retained)),fontSize=12.sp,color=appMuted)
                 }
-                if(i.type!="pdf" && i.attachment.isNotBlank()) TextButton(onClick={if(i.type=="audio" || (i.type=="note" && i.source=="dettatura Gemma")) {runCatching{player?.release();player=MediaPlayer().apply{setDataSource(i.attachment);prepare();start()}}.onFailure{onError(it.message.orEmpty())}} else {runCatching{val uri=FileProvider.getUriForFile(context,"${context.packageName}.files",File(i.attachment));context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,when(i.type){"image"->if(File(i.attachment).extension=="webp") "image/webp" else "image/*";"video"->"video/*";else->"application/octet-stream"});addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{onError(it.message.orEmpty())}}}){Text(if(i.type=="audio" || (i.type=="note" && i.source=="dettatura Gemma")) context.uiString(R.string.listen) else if(i.type=="image") context.uiString(R.string.open_image) else context.uiString(R.string.open_file))}
+                if((i.type=="audio" || (i.type=="note" && i.source=="dettatura Gemma")) && i.attachment.isNotBlank()) TextButton(onClick={
+                    runCatching {player?.release();player=MediaPlayer().apply {setDataSource(i.attachment);prepare();start()}}.onFailure {onError(it.message.orEmpty())}
+                }) {Text(context.uiString(R.string.listen))}
                 if(i.type=="youtube") TextButton(onClick=onImportTranscript){Text(context.uiString(R.string.import_transcript))}
                 Surface(color=appAccentSurface,shape=RoundedCornerShape(18.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -542,19 +591,21 @@ class MainActivity:ComponentActivity() {
                         if(summaryText.isNotBlank()) TextButton(onClick={
                             (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(i.title,summaryText));onMessage(context.uiString(R.string.text_copied))
                         }) {UiIcon(R.drawable.ui_copy,modifier=Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text(context.uiString(if(i.type=="image") R.string.copy_description else R.string.copy_summary))}
-                        Text(if(i.type=="image") context.uiString(R.string.description) else if(i.status.startsWith("pending_ai")) context.uiString(R.string.pending) else context.uiString(R.string.summary),fontWeight=FontWeight.Bold,color=accent)
+                        Text(if(i.type=="image") context.uiString(R.string.description) else if(i.summary.isBlank() && i.status.startsWith("pending_ai")) context.uiString(R.string.pending) else context.uiString(R.string.summary),fontWeight=FontWeight.Bold,color=accent)
                         Text(if(i.type=="image") description.ifBlank {
                             if(PostContent.failed(i)) context.uiString(R.string.description_failed)
                             else if(i.status.startsWith("processing")) context.uiString(R.string.description_preparing)
                             else context.uiString(R.string.description_pending)
                         } else i.summary.ifBlank { context.uiString(R.string.processing) },fontSize=14.sp)
-                        if(i.status.startsWith("processing") || i.status.startsWith("pending_ai") || PostContent.failed(i)) Text(PostContent.stage(i,AppLanguage.code(context)),fontSize=12.sp,color=appMuted)
+                        if(detailJobs.any {it.kind!="question" && it.state in setOf("waiting","running","failed")} && (i.status.startsWith("processing") || i.status.startsWith("pending_ai") || PostContent.failed(i))) Text(PostContent.stage(i,AppLanguage.code(context)),fontSize=12.sp,color=appMuted)
                         if(i.status.contains(" · ")) Text(i.status.substringAfter(" · "),fontSize=11.sp,color=appMuted)
                     }
                 }
+                } }
+                item(key="answers") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 detailJobs.filter {it.kind=="question" && it.state=="failed"}.takeLast(1).forEach {Text(context.uiString(R.string.question_failed)+": "+it.progress,fontSize=12.sp,color=Color(0xFFFF8B8B))}
                 if(i.body.isNotBlank() || answers.isNotEmpty()) {
-                    Text(context.uiString(R.string.questions_answers),Modifier.onGloballyPositioned { answerOffset=it.positionInParent().y.roundToInt() },fontWeight=FontWeight.Bold)
+                    Text(context.uiString(R.string.questions_answers),fontWeight=FontWeight.Bold)
                     pendingQuestion?.let { q->
                         Surface(color=panel,shape=RoundedCornerShape(12.dp)) {
                             Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -569,6 +620,8 @@ class MainActivity:ComponentActivity() {
                     if(pendingQuestion==null && answers.isEmpty()) Text(context.uiString(R.string.answers_placeholder),fontSize=12.sp,color=Color.LightGray)
                     answers.forEach { a->Surface(color=panel,shape=RoundedCornerShape(12.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(a.question,fontWeight=FontWeight.Bold);Spacer(Modifier.height(6.dp));Text(a.answer);Text(a.model,fontSize=10.sp,color=Color.Gray)}} }
                 }
+                } }
+                item(key="text-header") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 if(i.type=="youtube" && segments.isEmpty()) Text(if(i.status.startsWith("youtube_no_captions")) context.uiString(R.string.no_captions_hint) else context.uiString(R.string.captions_failed_hint),fontSize=12.sp,color=Color.LightGray)
                 if(textSegments.isNotEmpty() || copyText.isNotBlank()) {
                     val transcript=i.type in setOf("youtube","audio","video") || (i.type=="note" && i.source=="dettatura Gemma")
@@ -579,21 +632,26 @@ class MainActivity:ComponentActivity() {
                             Text(if(i.type=="image") context.uiString(R.string.copy_ocr) else if(transcript) context.uiString(R.string.copy_transcript) else context.uiString(R.string.copy_text),fontSize=12.sp)
                         }
                     }
-                    if(textSegments.isNotEmpty()) {
-                        if(i.type!="image") Text(context.uiString(R.string.segment_count,textSegments.size,textSegments.count { it.startMs>=0 }),fontSize=12.sp,color=appMuted)
-                        textSegments.take(visibleSegments).forEach { segment->
-                            val marker=when { segment.startMs>=0->"%02d:%02d:%02d".format(segment.startMs/3600000,(segment.startMs/60000)%60,(segment.startMs/1000)%60);segment.page>=0 && i.type=="pdf"->context.uiString(R.string.page_label,segment.page);else->"" }
-                            Column {
-                                if(marker.isNotBlank()) Text(marker,Modifier.clickable(enabled=i.type=="youtube" && segment.startMs>=0) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(i.sourceUrl+if(i.sourceUrl.contains('?')) "&t=${segment.startMs/1000}s" else "?t=${segment.startMs/1000}s"))) } },fontSize=12.sp,color=accent)
-                                Text(segment.text,fontSize=14.sp)
-                            }
-                        }
-                        if(visibleSegments<textSegments.size) TextButton(onClick={visibleSegments+=80}){Text(context.uiString(R.string.more_segments,textSegments.size-visibleSegments))}
-                    } else {
-                        Text(if(showFullBody) copyText else copyText.take(30000),fontSize=14.sp)
-                        if(copyText.length>30000 && !showFullBody) TextButton(onClick={showFullBody=true}){Text(context.uiString(R.string.show_full_text))}
-                    }
+                    if(textSegments.isNotEmpty() && i.type!="image") Text(context.uiString(R.string.segment_count,textSegments.size,textSegments.count {it.startMs>=0}),fontSize=12.sp,color=appMuted)
                 } else if(i.type=="image" && !i.status.startsWith("processing") && i.status!="saved") Text(context.uiString(R.string.no_image_text),fontSize=13.sp,color=appMuted)
+                } }
+                items(shownBlocks.size,key={"text-$it"}) {index ->
+                    val segment=shownBlocks[index]
+                    val marker=when {segment.startMs>=0 -> "%02d:%02d:%02d".format(segment.startMs/3600000,(segment.startMs/60000)%60,(segment.startMs/1000)%60);segment.page>=0 && i.type=="pdf" ->context.uiString(R.string.page_label,segment.page);else->""}
+                    Column {
+                        if(marker.isNotBlank()) Text(marker,Modifier.clickable(enabled=i.type=="youtube" && segment.startMs>=0) {
+                            runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(i.sourceUrl+if(i.sourceUrl.contains('?')) "&t=${segment.startMs/1000}s" else "?t=${segment.startMs/1000}s")))}
+                        },fontSize=12.sp,color=accent)
+                        Text(segment.text,fontSize=14.sp)
+                    }
+                }
+                item(key="text-controls") {
+                    if(expandable) Row {
+                        TextButton(onClick={showFullBody=!showFullBody;if(!showFullBody) scope.launch {scrollState.scrollToItem(2)}}) {Text(context.uiString(if(showFullBody) R.string.show_less else R.string.show_more))}
+                        if(showFullBody) TextButton(onClick={scope.launch {scrollState.scrollToItem(0)}}) {Text(context.uiString(R.string.back_to_top))}
+                    }
+                }
+                item(key="actions") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Column(horizontalAlignment=Alignment.Start) {
                     if(i.type!="image") TextButton(enabled=!busy && i.body.isNotBlank(),onClick={
                         scope.launch {withContext(Dispatchers.IO) {ProcessingQueue.summary(context,id)};onRefresh();onMessage(context.uiString(R.string.queued))}
@@ -611,6 +669,7 @@ class MainActivity:ComponentActivity() {
                         .onSuccess {onDelete()}
                         .onFailure {deleting=false;onError(it.message ?: context.uiString(R.string.item_missing))}
                 }}){Text(context.uiString(R.string.delete_item),color=Color(0xFFFF8B8B))}
+                } }
             }
             if(i.body.isNotBlank() && (i.type!="youtube" || segments.isNotEmpty())) Surface(color=panel,elevation=8.dp) {
                 Column(Modifier.fillMaxWidth()) {

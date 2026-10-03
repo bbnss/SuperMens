@@ -18,6 +18,8 @@ object ProcessingQueue {
     fun enqueue(context:Context,id:String,manual:Boolean=false,enrichOnly:Boolean=false) = synchronized(mutation) {
         BrainStore(context).use { store ->
             val item=store.get(id) ?: return@synchronized
+            val active=jobs(store).any {it.itemId==id && it.kind!="question" && it.state in setOf("waiting","running")}
+            if(!active) store.update(id,status=if(!enrichOnly && item.type in setOf("web","x","instagram","facebook","tiktok","youtube","video","pdf")) "saved" else "pending_ai")
             if(!enrichOnly && item.type in setOf("web","x","instagram","facebook","tiktok","youtube","video","pdf")) add(store,id,"acquire",manual)
             add(store,id,"process",manual)
         }
@@ -50,6 +52,19 @@ object ProcessingQueue {
     fun state(store:BrainStore,job:ProcessingJob,state:String,progress:String="",error:Boolean=false) {
         store.writableDatabase.execSQL("UPDATE processing_jobs SET state=?,progress=?,attempts=attempts+? WHERE id=?",arrayOf<Any>(state,progress,if(error) 1 else 0,job.id))
     }
+    fun complete(store:BrainStore,job:ProcessingJob,publish:()->Unit = {}) {
+        val db=store.writableDatabase
+        db.beginTransaction()
+        try {
+            publish()
+            state(store,job,"done")
+            // A retried process also settles stale process failures; questions remain independent.
+            if(job.kind in setOf("process","summary")) {
+                db.execSQL("UPDATE processing_jobs SET state='superseded' WHERE item_id=? AND kind=? AND id<? AND state IN ('waiting','failed')",arrayOf<Any>(job.itemId,job.kind,job.id))
+            }
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
+    }
     fun charging(context:Context)=(context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager).isCharging
     fun eligible(context:Context,job:ProcessingJob)=job.manual || !LocalPrefs.chargingOnly(context) || charging(context)
     fun canUnload(context:Context,checkBusy:Boolean=true):Boolean = (!checkBusy || !ProcessingGuard.busy) && BrainStore(context).use { store ->
@@ -77,6 +92,19 @@ object ProcessingQueue {
         WorkManager.getInstance(context).enqueueUniqueWork("supermens-charge-wake",ExistingWorkPolicy.KEEP,OneTimeWorkRequestBuilder<ChargingWakeWorker>().setConstraints(Constraints.Builder().setRequiresCharging(true).build()).build())
     }
     fun reconcile(context:Context,store:BrainStore) {
+            val snapshot=jobs(store)
+            store.list().filter {it.status.startsWith("pending_ai") || it.status.startsWith("processing")}.forEach {item ->
+                val final=snapshot.filter {it.itemId==item.id && it.kind in setOf("process","summary")}.maxByOrNull {it.id}
+                if(final?.state=="done" && item.summary.isNotBlank() && snapshot.none {it.itemId==item.id && it.kind!="question" && it.state in setOf("waiting","running","failed")}) {
+                    store.update(item.id,status="ready")
+                }
+            }
+            // A crash between publishing a ready post and finishing its process receipt is safe
+            // to settle. Never settle a summary/question merely because an old summary exists.
+            jobs(store).filter {it.kind=="process" && it.state in setOf("waiting","running","failed")}.forEach {job ->
+                val item=store.get(job.itemId)
+                if(item?.status in setOf("ready","source_limited","youtube_no_captions") && jobs(store).none {it.itemId==job.itemId && it.kind=="acquire" && it.state in setOf("waiting","running","failed")}) complete(store,job)
+            }
             store.list().filter { it.status=="saved" || it.status.startsWith("processing") || it.status.startsWith("pending_ai") }.forEach {
                 if(jobs(store).none { job->job.itemId==it.id && job.state in setOf("waiting","running","failed") }) enqueue(context,it.id,enrichOnly=it.type=="pdf" && it.pdfPages>0 || store.segments(it.id).any { s->s.source!="testo condiviso" })
             }
@@ -112,7 +140,7 @@ class AcquireWorker(context:Context,params:WorkerParameters):Worker(context,para
             ProcessingQueue.state(store,job,"running");store.update(item.id,status="acquiring")
             try {
                 SourceAcquisition.acquire(applicationContext,store,item)
-                ProcessingQueue.state(store,job,"done");store.update(item.id,status="pending_ai")
+                ProcessingQueue.complete(store,job) {store.update(item.id,status="pending_ai")}
                 ProcessingQueue.wakeProcessing(applicationContext)
             } catch(e:Exception) {
                 if(store.get(item.id)==null) continue
@@ -147,7 +175,7 @@ class ProcessingWorker(context:Context,params:WorkerParameters):Worker(context,p
                 try {
                     check()
                     runCatching { setForegroundAsync(ProcessingNotifications.foreground(applicationContext,item)).get() }
-                    val processor=PostProcessor(applicationContext,store,::check)
+                    val processor=PostProcessor(applicationContext,store,::check) {publish ->ProcessingQueue.complete(store,job,publish)}
                     when(job.kind) {
                         "question" -> {
                             if(!LocalModel.ready(applicationContext)) throw ModelWaiting()
@@ -157,7 +185,7 @@ class ProcessingWorker(context:Context,params:WorkerParameters):Worker(context,p
                         "summary" -> processor.summarize(item)
                         else -> processor.process(item)
                     }
-                    ProcessingQueue.state(store,job,"done")
+                    ProcessingQueue.complete(store,job)
                 } catch(e:Exception) {
                     if(store.get(item.id)==null) return@exclusive
                     val waitingModel=e is ModelWaiting

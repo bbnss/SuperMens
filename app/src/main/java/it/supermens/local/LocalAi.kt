@@ -55,7 +55,7 @@ object LocalAi {
     }
     private fun languageName(tag: String): String = Locale.forLanguageTag(tag).getDisplayLanguage(Locale.forLanguageTag(tag))
     fun summarize(context: Context, body: String, language: String, check:()->Unit = {}, read:(String)->String? = {null}, write:(String,String)->Unit = {_,_->}): String {
-        fun cached(key:String,prompt:String):String { check();val k=body.hashCode().toString()+":"+language+":"+key;return read(k) ?: generate(context,prompt).also {write(k,it)} }
+        fun cached(key:String,prompt:String):String { check();val k="summary-v2:"+body.hashCode().toString()+":"+language+":"+key;return read(k) ?: generate(context,prompt).also {write(k,it)} }
         require(body.isNotBlank()) { context.uiString(R.string.no_summary_text) }
         val chunks = body.chunked(8000)
         var partial = chunks.mapIndexed { index, chunk ->
@@ -65,10 +65,10 @@ object LocalAi {
         while (partial.size > 1) {
             level++
             partial = partial.chunked(6).mapIndexed { index,group ->
-                cached("reduce-$level-$index", "Unisci questi riassunti in ${languageName(language)} in massimo 180 parole. Conserva i fatti e non inventare.\n\n${group.joinToString("\n\n")}").take(2200)
+                cached("reduce-$level-$index", "Unisci questi riassunti in ${languageName(language)} in massimo 180 parole. Conserva i fatti e non inventare. Rispondi solo con il contenuto del riassunto, senza titoli, introduzioni o riferimenti alle istruzioni.\n\n${group.joinToString("\n\n")}").take(2200)
             }
         }
-        return cached("final", "Scrivi un riassunto finale di 4-6 frasi in ${languageName(language)} ($language). Conserva i fatti e non inventare.\n\n${partial.single()}")
+        return SummaryText.clean(cached("final", "Scrivi un riassunto finale di 4-6 frasi in ${languageName(language)} ($language). Conserva i fatti e non inventare. Restituisci soltanto il riassunto: inizia subito dai fatti, senza titoli, premesse come 'Ecco il riassunto', numero di frasi o riferimenti al prompt.\n\n${partial.single()}"))
     }
     fun answer(context: Context, item: BrainItem, segments: List<Segment>, question: String, language: String, onProgress:(String)->Unit = {}, check:()->Unit = {}): Pair<String, String> =
         PostQuestions.answer(item.body,segments,question,languageName(language),{ check();generate(context,it) },onProgress)

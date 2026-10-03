@@ -18,14 +18,45 @@ import java.util.UUID
 
 object Ingest {
     private val url=Regex("https?://[^\\s<>]+")
+    private val deferredEnqueues=ThreadLocal<MutableList<()->Unit>?>()
+    /** A receipt and its imported posts commit together, including after Activity restoration. */
+    @Synchronized fun once(store:BrainStore,requestId:String,operation:()->List<String>):List<String> {
+        val db=store.writableDatabase
+        val actions=mutableListOf<()->Unit>()
+        var committed=false
+        deferredEnqueues.set(actions)
+        db.beginTransaction()
+        try {
+            val previous=db.rawQuery("SELECT item_ids FROM ingest_receipts WHERE request_id=?",arrayOf(requestId)).use {c ->
+                if(c.moveToFirst()) org.json.JSONArray(c.getString(0)) else null
+            }
+            if(previous!=null) { db.setTransactionSuccessful();return (0 until previous.length()).map {previous.getString(it)} }
+            val ids=operation()
+            db.execSQL("INSERT INTO ingest_receipts VALUES(?,?)",arrayOf(requestId,org.json.JSONArray(ids).toString()))
+            db.setTransactionSuccessful();committed=true
+            return ids
+        } finally {
+            db.endTransaction();deferredEnqueues.remove()
+            if(committed) actions.forEach {it()}
+        }
+    }
     @Synchronized fun intake(context:Context,store:BrainStore,intent:Intent):List<String> {
         val ids=mutableListOf<String>()
-        val text=intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+        val plain=intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.trim().orEmpty()
+        val html=intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.let {org.jsoup.Jsoup.parse(it).wholeText().trim()}.orEmpty()
+        val clipText=intent.clipData?.let {clip -> (0 until clip.itemCount).mapNotNull {index ->
+            val entry=clip.getItemAt(index)
+            entry.text?.toString() ?: entry.htmlText?.let {org.jsoup.Jsoup.parse(it).wholeText()} ?: entry.uri?.takeIf {it.scheme in setOf("http","https")}?.toString()
+        }.joinToString("\n")}.orEmpty()
+        val subject=intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString().orEmpty().ifBlank {intent.getCharSequenceExtra(Intent.EXTRA_TITLE)?.toString().orEmpty()}
+        val content=plain.ifBlank {html.ifBlank {clipText.ifBlank {intent.data?.takeIf {it.scheme in setOf("http","https")}?.toString().orEmpty()}}}
+        val text=listOf(subject.takeIf {it.isNotBlank() && !content.contains(it)},content).filterNotNull().filter {it.isNotBlank()}.joinToString("\n\n")
         val uris=mutableListOf<Uri>()
         if(intent.action==Intent.ACTION_SEND_MULTIPLE) {
             intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM,Uri::class.java)?.let { uris.addAll(it) }
         } else intent.getParcelableExtra(Intent.EXTRA_STREAM,Uri::class.java)?.let { uris.add(it) }
         intent.clipData?.let { clip-> for(i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { if(it !in uris) uris.add(it) } }
+        uris.removeAll {it.scheme in setOf("http","https")}
         if(intent.action==Intent.ACTION_SEND && text.isNotBlank()) {
             val sharedLink=url.find(text)!=null
             val explicit=uris.firstOrNull { uri ->
@@ -45,7 +76,7 @@ object Ingest {
             return ids
         }
         if(text.isNotBlank()) ids+=text(context,store,text)
-        uris.distinct().forEach { ids+=file(context,store,it,intent.type) }
+        uris.distinct().filter {it.scheme !in setOf("http","https")}.forEach {ids+=file(context,store,it,intent.type)}
         return ids
     }
     @Synchronized fun text(context:Context,store:BrainStore,raw:String):String {
@@ -55,7 +86,7 @@ object Ingest {
             val jobs=ProcessingQueue.jobs(store).filter { it.itemId==existing.id }
             if(existing.status in setOf("saved","waiting_network","acquiring") || existing.status.startsWith("extraction_failed") || jobs.any {it.kind=="acquire" && it.state=="failed"}) {
                 enqueue(context,existing.id,manual=true)
-            } else if(existing.sourceQuality.endsWith("_preview_failed") || (existing.type=="x" && existing.thumbnail.isBlank())) {
+            } else if(existing.sourceQuality.endsWith("_preview_failed") || (existing.thumbnail.isBlank() && (existing.type=="x" || PublicPage.supportedHost(existing.sourceUrl)))) {
                 enqueue(context,existing.id,manual=true)
             } else if(existing.status.startsWith("processing_failed")) {
                 enqueue(context,existing.id,enrichOnly=true,manual=true)
@@ -84,7 +115,7 @@ object Ingest {
             else -> copyAttachment(context,uri,name)
         }
         val link=url.find(sharedText)?.value?.trimEnd('.',',',')',';').orEmpty()
-        val id=try { store.add(type,name,sourceUrl=link,body=sharedText,attachment=target?.absolutePath.orEmpty(),thumbnail=if(type=="image") target?.absolutePath.orEmpty() else "",documentUri=if(persistentPdf) uri.toString() else "") }
+        val id=try { store.add(type,name,sourceUrl=link,body=sharedText,attachment=target?.absolutePath.orEmpty(),thumbnail=if(type=="image") target?.absolutePath.orEmpty() else "",documentUri=if(persistentPdf || type=="pdf") uri.toString() else "") }
             catch(e: Exception) { target?.delete();stagedVideo?.delete();throw e }
         if(stagedVideo!=null) store.update(id,pendingMedia=stagedVideo.absolutePath)
         if(sharedText.isNotBlank()) store.addSegments(id,listOf(Segment(0,id,sharedText,-1,-1,"testo condiviso")))
@@ -108,10 +139,10 @@ object Ingest {
         store.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(id))
         require(item.type=="pdf") { context.uiString(R.string.not_pdf) }
         val persistent=DocumentStorage.persist(context,uri)
-        val copy=if(persistent) null else copyAttachment(context,uri,"document.pdf")
-        try { store.update(id,documentUri=if(persistent) uri.toString() else "",attachment=copy?.absolutePath ?: item.attachment,pdfPages=0,status="saved") }
-        catch(e: Exception) { copy?.delete();throw e }
-        if(copy!=null && item.attachment.isNotBlank()) File(item.attachment).delete()
+        val staged=if(persistent) null else VideoStorage.stage(context,uri)
+        try { store.update(id,documentUri=uri.toString(),pendingMedia=staged?.absolutePath.orEmpty(),pdfPages=0,status="saved") }
+        catch(e: Exception) { staged?.delete();throw e }
+        if(item.pendingMedia.isNotBlank()) File(item.pendingMedia).delete()
         if(item.documentUri.isNotBlank() && item.documentUri!=uri.toString() && store.list().none { it.documentUri==item.documentUri }) runCatching {
             context.contentResolver.releasePersistableUriPermission(Uri.parse(item.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -125,6 +156,10 @@ object Ingest {
         catch(e:Exception) { target.delete();throw e }
         return target
     }
-    fun enqueue(context:Context,id:String,enrichOnly:Boolean=false,manual:Boolean=false) = ProcessingQueue.enqueue(context,id,manual,enrichOnly)
+    fun enqueue(context:Context,id:String,enrichOnly:Boolean=false,manual:Boolean=false) {
+        val deferred=deferredEnqueues.get()
+        if(deferred!=null) deferred.add {ProcessingQueue.enqueue(context,id,manual,enrichOnly)}
+        else ProcessingQueue.enqueue(context,id,manual,enrichOnly)
+    }
     fun reschedulePending(context:Context,store:BrainStore) { ProcessingQueue.reconcile(context,store);ProcessingQueue.wake(context) }
 }

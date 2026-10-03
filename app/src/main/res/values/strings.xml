@@ -285,4 +285,16 @@
     <string name="model_check">Test model</string>
     <string name="model_checking">Testing model…</string>
     <string name="model_check_success">Model works · %1$s</string>
+    <string name="show_more">Show more</string>
+    <string name="show_less">Show less</string>
+    <string name="back_to_top">Back to top</string>
+    <string name="model_banner_title">Enable local AI</string>
+    <string name="model_banner_hint">Download Gemma 4 E2B (2.58 GB) to summarize and analyze your content on this phone.</string>
+    <string name="later">Later</string>
+    <string name="text_entry_hint">Write or paste your text or a link, then save it.</string>
+    <string name="paste_text">Paste</string>
+    <string name="character_count">%1$d characters</string>
+    <string name="saving_text">Saving…</string>
+    <string name="no_file_viewer">No app is available to open this file. Install a compatible viewer.</string>
+    <string name="original_not_retained">Original file not linked. Relink it to open it.</string>
 </resources>

@@ -32,7 +32,7 @@ object ProcessingNotifications {
         return ForegroundInfo(item.id.hashCode().and(0x7fffffff).coerceAtLeast(1),notification,kind)
     }
 }
-class PostProcessor(private val context:Context,private val store:BrainStore,private val check:()->Unit) {
+class PostProcessor(private val context:Context,private val store:BrainStore,private val check:()->Unit, private val finish:((()->Unit)->Unit) = {it()}) {
     fun process(item:BrainItem) {
         check()
         when(item.type) {
@@ -65,20 +65,22 @@ class PostProcessor(private val context:Context,private val store:BrainStore,pri
         if(current.type=="image") {
             if(!LocalModel.ready(context)) throw ModelWaiting()
             store.update(item.id,status="processing_vision")
-            ImageAnalysis.enrich(store,current,true,AppLanguage.code(context)) { LocalAi.describeImage(context,it,AppLanguage.code(context)) }
-        } else if(current.type in setOf("x","instagram","facebook","tiktok") && current.body.replace(Regex("https?://\\S+"),"").trim().isBlank()) {
-            store.update(item.id,status="source_limited",summary=context.uiString(R.string.social_unavailable))
+            ImageAnalysis.enrich(store,current,true,AppLanguage.code(context),complete=finish) { LocalAi.describeImage(context,it,AppLanguage.code(context)) }
+        } else if((current.type in setOf("x","instagram","facebook","tiktok") || PublicPage.socialHost(current.sourceUrl)) && current.body.replace(Regex("https?://\\S+"),"").trim().isBlank()) {
+            finish {store.update(item.id,status="source_limited",summary=context.uiString(R.string.social_unavailable))}
         } else if(current.body.isNotBlank() && (current.type!="youtube" || store.segments(item.id).isNotEmpty())) summarize(current)
-        else store.update(item.id,status=if(current.type=="youtube") "youtube_no_captions" else "ready")
+        else finish {store.update(item.id,status=if(current.type=="youtube") "youtube_no_captions" else "ready")}
     }
     fun summarize(item:BrainItem) {
         if(!LocalModel.ready(context)) throw ModelWaiting()
         check();store.update(item.id,status="processing_summary")
         val language=AppLanguage.code(context)
-        val input=if(item.type in setOf("x","instagram","facebook","tiktok") && !item.sourceQuality.startsWith("complete")) "Riassumi solo il testo disponibile, la fonte potrebbe essere incompleta.\n\n${item.body}" else item.body
+        val input=if((item.type in setOf("x","instagram","facebook","tiktok") || PublicPage.supportedHost(item.sourceUrl)) && !item.sourceQuality.startsWith("complete")) "Riassumi solo il testo disponibile, la fonte potrebbe essere incompleta.\n\n${item.body}" else item.body
         val summary=LocalAi.summarize(context,input,language,check,{ key -> store.readableDatabase.rawQuery("SELECT text FROM summary_chunks WHERE item_id=? AND chunk_key=?",arrayOf(item.id,key)).use { if(it.moveToFirst()) it.getString(0) else null } },{key,text ->store.writableDatabase.execSQL("INSERT OR REPLACE INTO summary_chunks VALUES(?,?,?)",arrayOf(item.id,key,text))})
-        store.update(item.id,summary=summary,status="ready")
-        store.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(item.id))
+        finish {
+            store.update(item.id,summary=summary,status="ready")
+            store.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(item.id))
+        }
     }
     private fun image(item:BrainItem) {
         var file=File(item.attachment)

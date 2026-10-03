@@ -40,8 +40,8 @@ AI inference runs locally using **Gemma 4 E2B through LiteRT-LM**. No remote bac
 | Photos and screenshots | Compresses images, extracts text and generates a description. |
 | Imported audio and video | Transcribes speech locally and summarizes the extracted text. |
 | YouTube links | Imports accessible captions, title and preview for local analysis. |
-| Public X and Instagram posts | Saves shared text and publicly accessible text, metadata and previews. |
-| News and web pages | Extracts readable content and generates a local summary. |
+| Public X, Instagram, LinkedIn and Reddit posts | Saves shared text and publicly accessible text, metadata and previews. |
+| News, Amazon products and web pages | Extracts readable content and generates a local summary. |
 | Notes | Saves written notes, voice recordings and supported on-device dictation. |
 
 Share content from other Android apps, import files, paste a link or capture a photo with the camera. Other public pages may also work when their content is accessible.
@@ -52,6 +52,8 @@ Share content from other Android apps, import files, paste a link or capture a p
 - **Find it again:** search your local archive and filter by content type.
 - **Process while charging:** capture online material immediately, then run automatic processing when connected to power. Manual questions and actions remain available on battery.
 - **Resume interrupted work:** persistent queues and checkpoints preserve completed transcription clips, PDF pages and summary steps. Heavy tasks run one at a time.
+- **Read comfortably:** long transcripts, OCR and document text start with a compact preview. Expand the complete text, collapse it, or return to the top with one tap.
+- **Open saved files:** launch a compatible viewer from the detail screen. PDFs keep an original-file reference; relink the original if access expires.
 - **Copy and share:** copy summaries, descriptions, OCR and transcripts; share a complete post as image and text or a paginated PDF.
 - **Keep your data portable:** export and restore ZIP archives containing structured data, Markdown notes and retained attachments.
 - **Keep storage lean:** compressed images and extracted text. Newly imported videos are not retained after preparation; temporary audio is removed after successful transcription.
@@ -60,11 +62,11 @@ Share content from other Android apps, import files, paste a link or capture a p
 ## Get started
 
 1. Download and install the [APK](https://github.com/bbnss/SuperMens/releases/latest/download/SuperMens.apk).
-2. Open **Settings** and download **Gemma 4 E2B** over Wi-Fi or explicitly allow mobile data, or import the supported `.litertlm` model file.
+2. Use the home banner to download **Gemma 4 E2B**. On Wi-Fi the download starts immediately; on mobile/metered data choose whether to download now or wait for Wi-Fi. You can also import the supported `.litertlm` file in **Settings**.
 3. Use **Test model** to check local inference, then save something through Android sharing or the **+** menu.
 4. Open its card to read, copy, share or ask a question.
 
-Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source. Version 0.2.3 is a regular release, so prereleases do not need to be enabled; the app remains experimental.
+Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source. Version 0.2.4 is a regular release, so prereleases do not need to be enabled; the app remains experimental.
 
 The model is downloaded separately and occupies approximately [2.6 GB](https://developers.google.com/edge/litert-lm/models/gemma-4). Allow additional storage for imports and temporary processing files. The supported model revision and import details are in the [developer notes](docs/DEVELOPMENT.md).
 
