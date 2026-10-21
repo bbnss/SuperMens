@@ -44,12 +44,13 @@ class QueueStorageTest {
         store.close()
         SQLiteDatabase.openDatabase(context.getDatabasePath("supermens.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->
             db.execSQL("DROP TABLE processing_jobs");db.execSQL("DROP TABLE summary_chunks")
-            db.execSQL("ALTER TABLE items DROP COLUMN pending_media");db.execSQL("ALTER TABLE items DROP COLUMN source_quality");db.version=2
+            db.execSQL("DROP TABLE messages");db.execSQL("ALTER TABLE items DROP COLUMN target_language")
+            db.execSQL("ALTER TABLE items DROP COLUMN pending_media");db.execSQL("ALTER TABLE items DROP COLUMN source_quality");db.execSQL("ALTER TABLE items DROP COLUMN title_state");db.version=2
         }
         store=BrainStore(context)
         assertEquals("old.mp4",store.get(id)!!.attachment);assertEquals("Original transcript",store.segments(id).single().text)
         assertEquals("Answer",store.answers(id).single().answer);assertTrue(ProcessingQueue.jobs(store).isEmpty())
-        assertEquals(4,store.readableDatabase.version)
+        assertEquals(7,store.readableDatabase.version)
     }
     @Test fun requestsAreDeduplicatedAndManualQuestionPersistsAcrossReopen() {
         val id=store.add("note","Queue fixture",body="Body")
@@ -264,9 +265,9 @@ class QueueStorageTest {
         store.update(id,summary="Existing summary",status="ready");store.addAnswer(id,"Question","Answer","Evidence","model")
         ProcessingQueue.question(context,id,"Pending question")
         store.close()
-        SQLiteDatabase.openDatabase(context.getDatabasePath("supermens.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->db.execSQL("DROP TABLE ingest_receipts");db.version=3}
+        SQLiteDatabase.openDatabase(context.getDatabasePath("supermens.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->db.execSQL("DROP TABLE ingest_receipts");db.execSQL("DROP TABLE messages");db.execSQL("ALTER TABLE items DROP COLUMN target_language");db.execSQL("ALTER TABLE items DROP COLUMN title_state");db.version=3}
         store=BrainStore(context)
-        assertEquals(4,store.readableDatabase.version);assertEquals("Existing summary",store.get(id)!!.summary)
+        assertEquals(7,store.readableDatabase.version);assertEquals("Existing summary",store.get(id)!!.summary)
         assertEquals("Answer",store.answers(id).single().answer);assertEquals("Pending question",ProcessingQueue.jobs(store).single().payload)
         assertEquals(listOf(id),Ingest.once(store,"upgrade-request") {listOf(id)})
     }

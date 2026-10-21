@@ -33,15 +33,12 @@ object ProcessingNotifications {
     }
 }
 class PostProcessor(private val context:Context,private val store:BrainStore,private val check:()->Unit, private val finish:((()->Unit)->Unit) = {it()}) {
-    fun process(item:BrainItem) {
+    fun process(item:BrainItem,refreshImage:Boolean=false) {
         check()
         when(item.type) {
             "pdf" -> if(item.pdfPages==0) {
-                PdfTextExtractor.extract(context,store,if(item.pendingMedia.isNotBlank()) item.copy(attachment=item.pendingMedia,documentUri="") else item,{ runCatching { check() }.isSuccess },readPage={ page ->store.readableDatabase.rawQuery("SELECT text FROM summary_chunks WHERE item_id=? AND chunk_key=?",arrayOf(item.id,"pdf-page-$page")).use {if(it.moveToFirst()) it.getString(0) else null} },savePage={page,text ->store.writableDatabase.execSQL("INSERT OR REPLACE INTO summary_chunks VALUES(?,?,?)",arrayOf(item.id,"pdf-page-$page",text))})
-                if(item.pendingMedia.isNotBlank()) {
-                    File(item.pendingMedia).delete();store.update(item.id,pendingMedia="")
-                    if(item.attachment.isNotBlank() && item.documentUri.isNotBlank() && DocumentStorage.hasPermission(context,item.documentUri)) {File(item.attachment).delete();store.update(item.id,attachment="")}
-                }
+                DocumentStorage.retain(context,store,item.id)
+                PdfTextExtractor.extract(context,store,store.get(item.id) ?: return,{ runCatching { check() }.isSuccess },readPage={ page ->store.readableDatabase.rawQuery("SELECT text FROM summary_chunks WHERE item_id=? AND chunk_key=?",arrayOf(item.id,"pdf-page-$page")).use {if(it.moveToFirst()) it.getString(0) else null} },savePage={page,text ->store.writableDatabase.execSQL("INSERT OR REPLACE INTO summary_chunks VALUES(?,?,?)",arrayOf(item.id,"pdf-page-$page",text))})
             }
             "image" -> if(store.segments(item.id).none { it.source=="ocr" }) image(item)
             "transcript" -> if(store.segments(item.id).isEmpty()) { val raw=File(item.attachment).readText();store.addSegments(item.id,YoutubeCaptions.parse(raw).ifEmpty { listOf(Segment(0,item.id,raw,-1,-1,"import")) }.map { it.copy(itemId=item.id) }) }
@@ -54,7 +51,7 @@ class PostProcessor(private val context:Context,private val store:BrainStore,pri
                 store.update(item.id,status="processing_audio")
                 val completed=store.segments(item.id).filter { it.source=="gemma audio" }.associate { it.page to it.text }
                 val transcript=LocalAi.transcribe(context,File(source),completed,{ index,total,startMs,text ->store.upsertAudioClip(item.id,index,startMs,text);store.update(item.id,status="processing_audio ${index+1}/$total") },{runCatching {check()}.isSuccess})
-                val shared=store.segments(item.id).filter { it.source=="testo condiviso" }.joinToString("\n") { it.text }
+                val shared=store.segments(item.id).filter { PostContent.isAddition(it) }.joinToString("\n") { it.text }
                 store.update(item.id,body=listOf(shared,transcript).filter { it.isNotBlank() }.joinToString("\n\n"),title=if(item.type=="audio") transcript.lineSequence().first().take(76) else null)
                 if(item.source=="dettatura Gemma") store.changeType(item.id,"note")
                 if(item.type=="video" && item.attachment.isBlank()) { File(source).delete();store.update(item.id,pendingMedia="") }
@@ -65,7 +62,7 @@ class PostProcessor(private val context:Context,private val store:BrainStore,pri
         if(current.type=="image") {
             if(!LocalModel.ready(context)) throw ModelWaiting()
             store.update(item.id,status="processing_vision")
-            ImageAnalysis.enrich(store,current,true,AppLanguage.code(context),complete=finish) { LocalAi.describeImage(context,it,AppLanguage.code(context)) }
+            ImageAnalysis.enrich(store,current,true,AppLanguage.code(context),complete=finish,force=refreshImage) { LocalAi.describeImage(context,it,AppLanguage.code(context)) }
         } else if((current.type in setOf("x","instagram","facebook","tiktok") || PublicPage.socialHost(current.sourceUrl)) && current.body.replace(Regex("https?://\\S+"),"").trim().isBlank()) {
             finish {store.update(item.id,status="source_limited",summary=context.uiString(R.string.social_unavailable))}
         } else if(current.body.isNotBlank() && (current.type!="youtube" || store.segments(item.id).isNotEmpty())) summarize(current)
@@ -78,8 +75,8 @@ class PostProcessor(private val context:Context,private val store:BrainStore,pri
         val input=if((item.type in setOf("x","instagram","facebook","tiktok") || PublicPage.supportedHost(item.sourceUrl)) && !item.sourceQuality.startsWith("complete")) "Riassumi solo il testo disponibile, la fonte potrebbe essere incompleta.\n\n${item.body}" else item.body
         val summary=LocalAi.summarize(context,input,language,check,{ key -> store.readableDatabase.rawQuery("SELECT text FROM summary_chunks WHERE item_id=? AND chunk_key=?",arrayOf(item.id,key)).use { if(it.moveToFirst()) it.getString(0) else null } },{key,text ->store.writableDatabase.execSQL("INSERT OR REPLACE INTO summary_chunks VALUES(?,?,?)",arrayOf(item.id,key,text))})
         finish {
-            store.update(item.id,summary=summary,status="ready")
-            store.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(item.id))
+            store.update(item.id,title=summary.title,summary=summary.summary,titleState="generated",status="ready")
+            store.writableDatabase.delete("summary_chunks","item_id=? AND chunk_key LIKE 'summary-%'",arrayOf(item.id))
         }
     }
     private fun image(item:BrainItem) {
@@ -89,7 +86,7 @@ class PostProcessor(private val context:Context,private val store:BrainStore,pri
         store.update(item.id,status="processing_ocr")
         val recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try { val text=Tasks.await(recognizer.process(InputImage.fromBitmap(bmp,0))).text
-            val shared=store.segments(item.id).filter { it.source=="testo condiviso" }
+            val shared=store.segments(item.id).filter { PostContent.isAddition(it) }
             store.addSegments(item.id,shared+listOf(Segment(0,item.id,text,-1,-1,"ocr")))
         } finally { bmp.recycle();recognizer.close() }
     }

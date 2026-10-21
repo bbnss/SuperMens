@@ -72,7 +72,7 @@ class HomeUiTest {
             rule.onNodeWithText("Hidden activity test").assertIsDisplayed()
         } finally {scenario.close();delete(store,id);store.close()}
     }
-    @Test fun imageDetailSeparatesDescriptionAndCopiesOnlyAllOcr() {
+    @Test fun imageDetailSeparatesDescriptionAndSummaryAndCopiesOnlyAllOcr() {
         val store=BrainStore(context);val id=store.add("image","Image copy test")
         val ocr=(0 until 100).map {Segment(0,id,"OCR paragraph $it",-1,-1,"ocr")}
         store.addSegments(id,ocr+Segment(0,id,"Unique photo description",-1,-1,"visione"))
@@ -81,7 +81,7 @@ class HomeUiTest {
         try {
             waitText("Image copy test");rule.onNodeWithText("Image copy test").performClick()
             waitText("Descrizione")
-            rule.onNodeWithText("Old redundant summary").assertDoesNotExist()
+            rule.onNodeWithText("Old redundant summary").assertIsDisplayed()
             rule.onNodeWithText("Rigenera riassunto").assertDoesNotExist()
             rule.onNodeWithTag("detail-content").performScrollToNode(hasText("Copia testo OCR"));rule.onNodeWithText("Copia testo OCR").performClick()
             rule.onNodeWithText("Testo copiato").assertIsDisplayed()
@@ -121,8 +121,8 @@ class HomeUiTest {
             rule.waitUntil(25000) {store.list().any {it.id !in before}}
             val saved=store.list().first {it.id !in before}
             assertEquals("image",saved.type);assertTrue(ImageStorage.isOptimized(java.io.File(saved.attachment)))
-            assertEquals(0,java.io.File(context.cacheDir,"camera").listFiles()?.size ?: 0)
             waitText("Foto salvata")
+            assertEquals(0,java.io.File(context.cacheDir,"camera").listFiles()?.size ?: 0)
             cancel=true
             rule.onNodeWithContentDescription("Aggiungi contenuto").performClick()
             waitText("Fotocamera")

@@ -20,12 +20,13 @@ object PostShare {
         if(item.documentUri.isNotBlank()) append(context.uiString(R.string.original_reference)+": "+item.documentUri+"\n\n")
         val summary=if(item.type=="image") PostContent.description(segments) else item.summary
         if(summary.isNotBlank()) append(context.uiString(if(item.type=="image") R.string.description else R.string.summary)+"\n"+summary+"\n\n")
+        if(item.type=="image" && item.summary.isNotBlank()) append(context.uiString(R.string.summary)+"\n"+item.summary+"\n\n")
         if(answers.isNotEmpty()) {
             append(context.uiString(R.string.questions_answers)+"\n\n")
             answers.sortedBy {it.createdAt}.forEach { append(it.question+"\n"+it.answer+"\n\n") }
         }
         val body=PostContent.copyText(item,segments)
-        val additional=segments.filter { it.source!="visione" && it !in PostContent.textSegments(item.type,segments) && it.text.isNotBlank() }
+        val additional=if(item.type in setOf("chat","translation")) emptyList() else segments.filter { it.source!="visione" && it !in PostContent.textSegments(item.type,segments) && it.text.isNotBlank() }
         if(additional.isNotEmpty()) append(additional.joinToString("\n\n") {it.text}+"\n\n")
         if(body.isNotBlank()) append(context.uiString(if(item.type=="image") R.string.detected_text else if(item.type in setOf("audio","video","youtube")) R.string.full_transcript else R.string.extracted_text)+"\n"+body)
     }
@@ -63,7 +64,9 @@ object PostShare {
                         // Clip precisely at the final complete line; the next page resumes there.
                         page.canvas.clipRect(0,offset,523,layout.getLineBottom(line-1))
                         layout.draw(page.canvas);page.canvas.restore()
-                        page.canvas.drawText(number.toString(),550f,817f,paint)
+                        val footer=TextPaint(paint).apply {textSize=9f;color=Color.DKGRAY}
+                        page.canvas.drawText("SuperMens · "+context.getString(R.string.repository_url),36f,817f,footer)
+                        page.canvas.drawText(number.toString(),550f,817f,footer)
                         document.finishPage(page);number++
                     } while(line<layout.lineCount)
                     file.outputStream().use {document.writeTo(it)}
@@ -75,7 +78,7 @@ object PostShare {
             Intent(Intent.ACTION_SEND).apply {
                 type=if(pdf) "application/pdf" else if(file!=null) "image/jpeg" else "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT,item.title)
-                if(!pdf) putExtra(Intent.EXTRA_TEXT,body)
+                if(!pdf) putExtra(Intent.EXTRA_TEXT,body.trimEnd()+"\n\nSuperMens · "+context.getString(R.string.repository_url))
                 if(file!=null) {
                     val uri=FileProvider.getUriForFile(context,"${context.packageName}.files",file)
                     putExtra(Intent.EXTRA_STREAM,uri);clipData=ClipData.newUri(context.contentResolver,item.title,uri)

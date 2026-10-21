@@ -7,7 +7,7 @@ This project contains the local Android app only, with no backend module.
 - Application ID: `it.supermens.offline`.
 - Minimum SDK: 35 (Android 15); compile and target SDK: 36.
 - Packaged architecture: `arm64-v8a`.
-- Release: `0.2.4`, version code `6`.
+- Release: `0.2.8`, version code `10`.
 - Toolchain: JDK 17 or later, Android SDK 36 and the included Gradle wrapper.
 
 Configure `JAVA_HOME` and `ANDROID_HOME` for your machine, or use Android Studio. Never commit `local.properties`.
@@ -45,6 +45,18 @@ Release 0.2.4 is published with `prerelease=false` and marked latest so Obtainiu
 
 ## Model and inference
 
+### Conversations and translations
+
+Database schema 5 adds a target language to posts and ordered user/assistant messages for `chat` and `translation` posts. Messages retain their mode, language, state and reply relationship; original text and translations remain separately accessible. The first input and its processing job are committed together. Manual transcription, translation and chat jobs use the existing serial processing guard and can run on battery. Audio clips and translated blocks have separate checkpoint keys; successful publication and the completed job receipt share a transaction. Interrupted jobs resume on reopening; failed jobs have an explicit retry action.
+
+Translation uses UTF-8-bounded blocks without discarding source characters. Free chat rebuilds LiteRT-LM history using complete recent exchanges, reserves room within the existing 4,096-token runtime context and marks replies when older context is omitted. Translation-post questions use retrieval over the saved original/translated text. Audio is transcribed into an editable draft before submitting it for translation or a reply. Temporary audio is removed after successful transcription. A bundled ML Kit language-identification model checks sufficiently confident results offline. Gemma receives translation instructions through the system role and full English target-language names/tags; one corrective attempt precedes a non-automatically-retried language error. Translation checkpoints include prompt version, target and input digest. No cloud inference provider is introduced.
+
+Android TextToSpeech is used only with voices whose `isNetworkConnectionRequired` flag is false. Missing voices lead to Android voice settings; playback stops when recording starts, the app moves to the background, or the screen closes. The target translation language uses `LocaleManager.systemLocales`, independently of the English/Italian app UI fallback.
+
+Backup manifest version 4 includes post-title state, retained PDF copies, conversation messages, reply links, target languages and pending audio. Imports accept versions 1, 2, 3 and 4 and remap message identifiers while retaining reply relationships. Markdown exports include the complete conversation and manual additions. Models and voice packages remain outside app backups.
+
+Manual additions use their own `manual` segment source and survive re-extraction/retranscription. They do not mark an incomplete online source complete or enqueue a summary. Shared PDF footers and image/text signatures use the existing `repository_url` resource.
+
 The APK does not include weights. The supported model is `gemma-4-E2B-it.litertlm` from [this pinned revision](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/7fa1d78473894f7e736a21d920c3aa80f950c0db), sized **2,583,085,056 bytes**. Downloads and imports validate both size and SHA-256 (`ab7838cdfc8f77e54d8ca45eadceb20452d9f01e4bfade03e5dce27911b27e42`). DownloadManager can preallocate the entire file size while only a few MB have arrived, so file size must never be used as a completion signal. DownloadManager writes to a `.download` staging file; a persistent verification worker promotes it only after validation. Existing models from earlier builds are verified on upgrade. Allow storage for the staged imported file as well as any existing weights.
 
 Android isolates other apps’ private files. A model installed elsewhere must be exported into an accessible document or downloaded for SuperMens. The download dialog offers Wi-Fi only or consent to mobile/metered data for that download. Roaming stays disabled. Paused and failed downloads show their reason. A download paused for Wi-Fi can be restarted on mobile data after confirmation.
@@ -71,12 +83,20 @@ Queued or running posts can be deleted without waiting for native inference; del
 
 Missing models and Internet wait without consuming retries; three actual failures require manual retry. WorkManager resumes eligible work subject to Android scheduling. Reopen the app after force-stopping it.
 
+## Daily title lists
+
+Schema 7 adds `title_state` (`pending`, `legacy`, `generated`) and removes the three daily-summary tables. Existing posts keep their titles as `legacy`; no title backfill is queued. New titles enter the expandable list only after successful processing. The list follows the cards' order and opens the corresponding posts; search hides it. Every list starts collapsed and its expansion survives navigation and Activity recreation.
+
+The final post-summary inference returns validated `<title>` and `<summary>` blocks together. Image inference returns `<title>` and `<description>`. Chat/translation jobs create a title from the completed exchange without adding a summary; response and translation checkpoints survive title-generation failure. Publication of title/content and job completion is atomic. A malformed response gets one corrective attempt before normal queue retries; invalid output is never checkpointed. Ordinary post questions do not change titles.
+
+Daily scheduling, watchdogs, caches and generation are retired. Existing unique daily work and worker-class tags are cancelled; compatibility workers return success without loading Gemma. Older backup daily data is ignored. Automatic post processing retains its charging preference and manual actions retain their priority.
+
 ## Media, backup and sharing
 
 - Imported photos: WebP up to 2,400 px / quality 85. Online previews: up to 1,600 px / quality 75. EXIF orientation is applied; small images are not enlarged. Inference uses PNG bytes in memory without saving another image.
 - Camera: system capture with a temporary private URI, retaining the compressed image after successful import. Cancellation creates no post.
 - Images: description and OCR without a redundant summary; legacy summaries remain stored.
-- PDFs: extracted text, preview and original reference when persistent permission is granted. A temporary snapshot survives charging waits and is removed after successful extraction. Originals can be relinked; Android grants do not transfer in backups. New PDFs, including relinked documents, retain references rather than permanent copies; temporary snapshots are discarded after extraction. Older retained attachments remain usable.
+- PDFs: imports and relinks stage, sync and validate a complete private `.pdf` copy before committing it. Extraction and opening prefer this copy, which remains after OCR and is included in ZIP backups. Startup recovery promotes readable legacy snapshots/originals without requiring weights or charging. Relinking warns before selection and confirms the chosen filename before replacement; errors keep the existing document. Confirmed requests have persistent receipts to prevent replay after Activity recreation. Replacement retires stale jobs/checkpoints and invalidates derived PDF content while preserving manual additions and saved questions/answers.
 - New videos: temporary working copy, preview up to 720 px, temporary mono AAC/M4A at 16 kHz / 48 kbps. The working video is deleted after preparation; audio after successful transcription. Legacy archived videos remain unchanged. Retranscription later requires the original.
 - ZIP backup: JSON manifest, Markdown notes, saved answers, previews and retained attachments. Pending sources, temporary audio and model weights are excluded.
 - Sharing: all stored segments/answers, including those beyond the detail screen’s visible limit. JPEG plus text or a complete paginated PDF. Share files older than 24 hours are removed at the next share.
@@ -91,7 +111,7 @@ There is no remote AI endpoint. ML Kit can send technical metrics and contact Go
 
 ## UI and validation
 
-The home retains two columns, colored type filters, bottom search and a rounded add menu. A missing-model banner starts Wi-Fi downloads after a click and asks for mobile/metered consent otherwise. The multiline text editor uses explicit dark-theme colors and retains drafts across Activity recreation. Long text previews are capped at 1,200 characters; expanded text uses lazy 1,600-character display slices with page/timestamp references and collapse/top controls. Copying and exports always use complete stored text. Settings use the current JPEG with a circular clip and slight scaling to exclude its outer white rim. The launcher uses the same artwork with Android’s adaptive mask. The README embeds that original artwork in `docs/assets/supermens-icon.svg` with the same circular mask and scaling, keeping the outer background transparent. Only BBNSS in the footer opens the repository.
+The All tab groups posts by local creation date in a scrolling daily timeline with two columns and an expandable title list. Expansion, stable visible item key and scroll offset live above the navigation routes and survive Activity recreation. Searches keep dates and hide the daily title list. Back from home requires an exit confirmation; nested screens and dialogs handle Back before it. Other type tabs retain the grid. The home retains colored type filters, bottom search and a rounded add menu. A missing-model banner starts Wi-Fi downloads after a click and asks for mobile/metered consent otherwise. The multiline text editor uses explicit dark-theme colors and retains drafts across Activity recreation. Long text previews are capped at 1,200 characters; expanded text uses lazy 1,600-character display slices with page/timestamp references and collapse/top controls. Copying and exports always use complete stored text. Settings use the current JPEG with a circular clip and slight scaling to exclude its outer white rim. The launcher uses the same artwork with Android’s adaptive mask. The README embeds that original artwork in `docs/assets/supermens-icon.svg` with the same circular mask and scaling, keeping the outer background transparent. Only BBNSS in the footer opens the repository.
 
 Italian is selected for an Italian primary device/app language; other primary languages use English. Existing content keeps its language.
 
@@ -108,3 +128,11 @@ The complete pinned model also matched the expected size and SHA-256 on the host
 Physical-device testing with installed weights is needed for Gemma quality/performance and GPU behavior. Exercise camera capture/cancel, recording, dictation fallback, long-document questions, relinking, charging/unplugging and background resume.
 
 `tools/adb_profile.sh --name transcription --duration 180` samples CPU, PSS, battery, temperature and charging every five seconds with one authorized device. Generated CSV files contain its serial: keep `tools/profiles/` private and ignored.
+
+## 0.2.8 validation
+
+70 JVM tests and all 87 Android regressions passed on an isolated Android 16 / API 36.1 ARM64 emulator. Coverage includes title validation and checkpoints, legacy migration without backfill, title-list updates and links, scroll/expansion restoration after navigation and Activity recreation, both PDF confirmations, copy/replacement failures, recovery of legacy snapshots, backup round trips and title-failure resumption for translations.
+
+Debug and release lint report no errors. The signed release passes APK signature and 16 KiB ZIP-alignment verification; its certificate matches 0.2.7. A signed 0.2.7-to-0.2.8 emulator update retained an existing post and exposed it in the expandable title list with versionCode 10. Publication audit found no private files, credentials or developer paths in the sources or APK.
+
+No physical device is connected. Native Gemma quality/performance with the new title prompts remains a physical-device verification step; automated title and conversation regressions inject model output.

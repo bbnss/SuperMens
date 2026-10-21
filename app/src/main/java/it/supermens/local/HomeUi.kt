@@ -9,6 +9,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -32,6 +44,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.collect
 import android.graphics.BitmapFactory
 
 internal val appBackground = Color(0xFF10151D)
@@ -74,14 +87,37 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
     filter: String, onFilter: (String)->Unit, entries: List<ActivityEntry>, recording: Boolean,
     dictating: Boolean, dictationStatus: String, savingPhoto: Boolean, onActivities: ()->Unit, onStop: ()->Unit,
     onOpen: (BrainItem)->Unit, onNote: ()->Unit, onRecord: ()->Unit, onDictate: ()->Unit,
-    onFile: ()->Unit, onCamera: ()->Unit, onPaste: ()->Unit, modelBanner: @Composable ()->Unit = {}
+    onFile: ()->Unit, onCamera: ()->Unit, onPaste: ()->Unit, modelBanner: @Composable ()->Unit = {},onTranslation:()->Unit={},onChat:()->Unit={},
+    onRefreshPost:(BrainItem)->Unit={}, gridState:LazyGridState=rememberLazyGridState(),
+    expandedDays:List<String> = emptyList(), onExpandedDays:(List<String>)->Unit={},
+    anchorKey:String?=null, anchorOffset:Int=0, onPosition:(String?,Int)->Unit={_,_->}
 ) {
     val context=LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val keyboard=LocalSoftwareKeyboardController.current
+    var restored by remember { mutableStateOf(false) }
+    LaunchedEffect(items,expandedDays) {
+        if(!restored && items.isNotEmpty()) {
+            val keys=if(filter=="all") buildList {
+                DailyTimeline.groups(items).forEach { (day,posts) ->
+                    add("day:${day.value}")
+                    if(query.isBlank() && day.value in expandedDays) DailyTimeline.titles(posts).forEach {add("title:${it.id}")}
+                    addAll(posts.map {it.id})
+                }
+            } else items.map {it.id}
+            val index=keys.indexOf(anchorKey)
+            if(index>=0) gridState.scrollToItem(index,anchorOffset)
+            restored=true
+        }
+    }
+    LaunchedEffect(restored) {
+        if(restored) snapshotFlow {
+            (gridState.layoutInfo.visibleItemsInfo.firstOrNull {it.index==gridState.firstVisibleItemIndex}?.key as? String) to gridState.firstVisibleItemScrollOffset
+        }.collect { (key,offset) ->if(key!=null) onPosition(key,offset) }
+    }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=4.dp), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("all" to context.uiString(R.string.filter_all),"note" to context.uiString(R.string.filter_notes),"youtube" to context.uiString(R.string.filter_youtube),"video" to context.uiString(R.string.filter_video),"social" to context.uiString(R.string.filter_social),"pdf" to context.uiString(R.string.filter_pdf),"audio" to context.uiString(R.string.filter_audio),"image" to context.uiString(R.string.filter_images),"web" to context.uiString(R.string.filter_web)).forEach { (key,label) ->
+            listOf("all" to context.uiString(R.string.filter_all),"note" to context.uiString(R.string.filter_notes),"chat" to context.uiString(R.string.free_chat),"translation" to context.uiString(R.string.translation),"youtube" to context.uiString(R.string.filter_youtube),"video" to context.uiString(R.string.filter_video),"social" to context.uiString(R.string.filter_social),"pdf" to context.uiString(R.string.filter_pdf),"audio" to context.uiString(R.string.filter_audio),"image" to context.uiString(R.string.filter_images),"web" to context.uiString(R.string.filter_web)).forEach { (key,label) ->
                 Surface(color=if(filter==key) appAccentSurface else appPanel, shape=RoundedCornerShape(24.dp), border=if(filter==key) BorderStroke(1.dp,appAccent.copy(alpha=.5f)) else null, modifier=Modifier.heightIn(min=48.dp).clickable { onFilter(key) }) {
                     Row(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) { UiIcon(typeIcon(key),modifier=Modifier.size(16.dp),tint=typeColor(key));Text(label,color=if(filter==key) typeColor(key) else appMuted,fontSize=13.sp,fontWeight=if(filter==key) FontWeight.SemiBold else FontWeight.Normal) }
                 }
@@ -96,8 +132,28 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                 Text(if(total==0) context.uiString(R.string.empty_heading) else context.uiString(R.string.no_results),fontSize=19.sp,fontWeight=FontWeight.SemiBold)
                 Text(if(total==0) context.uiString(R.string.empty_hint) else context.uiString(R.string.no_results_hint),color=appMuted,fontSize=14.sp)
             }
-        } else LazyVerticalGrid(GridCells.Fixed(2),modifier=Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            items(items,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty()) { onOpen(item) } }
+        } else LazyVerticalGrid(GridCells.Fixed(2),state=gridState,modifier=Modifier.weight(1f).fillMaxWidth().testTag("home-posts"),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if(filter=="all") {
+                DailyTimeline.groups(items).forEach { (day,posts) ->
+                    item(key="day:${day.value}",span={GridItemSpan(maxLineSpan)}) {
+                        val titles=DailyTimeline.titles(posts)
+                        DailyHeader(day,titles.size,query.isBlank(),day.value in expandedDays) {
+                            onExpandedDays(if(day.value in expandedDays) expandedDays-day.value else expandedDays+day.value)
+                        }
+                    }
+                    if(query.isBlank() && day.value in expandedDays) {
+                        items(DailyTimeline.titles(posts),key={"title:${it.id}"},span={GridItemSpan(maxLineSpan)}) { post ->
+                            Surface(color=appAccentSurface,shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth().testTag("daily-title:${post.id}").clickable {onOpen(post)}) {
+                                Row(Modifier.padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                                    Text("•  "+post.title,Modifier.weight(1f),color=appAccent,fontSize=15.sp)
+                                    UiIcon(R.drawable.ui_chevron,modifier=Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                    items(posts,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty(),{onRefreshPost(item)}) { onOpen(item) } }
+                }
+            } else items(items,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty(),{onRefreshPost(item)}) { onOpen(item) } }
         }
         Surface(color=appBackground,elevation=8.dp) {
             Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -109,7 +165,7 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                     }
                     MaterialTheme(shapes=MaterialTheme.shapes.copy(small=RoundedCornerShape(20.dp))) {
                     DropdownMenu(menu,{menu=false},modifier=Modifier.width(260.dp).background(appPanel).padding(6.dp)) {
-                        listOf(Triple(context.uiString(R.string.written_note),R.drawable.ui_note,onNote),Triple(context.uiString(R.string.voice_note),R.drawable.ui_mic,onRecord),Triple(context.uiString(R.string.dictation),R.drawable.ui_dictation,onDictate),Triple(context.uiString(R.string.import_file),R.drawable.ui_file,onFile),Triple(context.uiString(R.string.camera),R.drawable.ui_camera,onCamera),Triple(context.uiString(R.string.paste_content),R.drawable.ui_paste,onPaste)).forEach { (label,icon,action) ->
+                        listOf(Triple(context.uiString(R.string.written_note),R.drawable.ui_note,onNote),Triple(context.uiString(R.string.voice_note),R.drawable.ui_mic,onRecord),Triple(context.uiString(R.string.dictation),R.drawable.ui_dictation,onDictate),Triple(context.uiString(R.string.import_file),R.drawable.ui_file,onFile),Triple(context.uiString(R.string.camera),R.drawable.ui_camera,onCamera),Triple(context.uiString(R.string.paste_content),R.drawable.ui_paste,onPaste),Triple(context.uiString(R.string.translation),R.drawable.ui_web,onTranslation),Triple(context.uiString(R.string.free_chat),R.drawable.ui_note,onChat)).forEach { (label,icon,action) ->
                             DropdownMenuItem(modifier=Modifier.padding(vertical=2.dp).clip(RoundedCornerShape(14.dp)).background(appAccentSurface).heightIn(min=52.dp),onClick={menu=false;action()},enabled=!(recording || dictating) || label==context.uiString(R.string.written_note) || label==context.uiString(R.string.paste_content)) {
                                 UiIcon(icon,tint=appAccent);Spacer(Modifier.width(14.dp));Text(label,fontSize=15.sp)
                             }
@@ -122,13 +178,28 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
     }
 }
 
-@Composable private fun PostCard(item: BrainItem, preview: String, onClick: ()->Unit) {
+@Composable private fun DailyHeader(day:DailyKey,count:Int,showTitles:Boolean,expanded:Boolean,onToggle:()->Unit) {
+    val context=LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(top=8.dp,bottom=4.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+        Text(LocalDate.parse(day.date).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(Locale.forLanguageTag(AppLanguage.code(context)))),
+            fontSize=19.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("day:${day.value}"))
+        if(showTitles) Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("daily-toggle:${day.value}").semantics {
+            stateDescription=context.uiString(if(expanded) R.string.day_titles_expanded else R.string.day_titles_collapsed)
+        }.clickable(onClick=onToggle),verticalAlignment=Alignment.CenterVertically) {
+            Text(context.uiString(R.string.day_post_titles,count),Modifier.weight(1f),color=appAccent,fontSize=15.sp)
+            UiIcon(R.drawable.ui_chevron,context.uiString(if(expanded) R.string.day_titles_close else R.string.day_titles_open),Modifier.size(24.dp).rotate(if(expanded) 90f else 0f))
+        }
+    }
+}
+
+@Composable private fun PostCard(item: BrainItem, preview: String, onRefresh:()->Unit, onClick: ()->Unit) {
     val context=LocalContext.current
     val visual=item.type !in setOf("note","audio")
     Surface(modifier=Modifier.fillMaxWidth().heightIn(min=if(visual) 236.dp else 194.dp).clickable(onClick=onClick),color=appPanel,shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,Color.White.copy(alpha=.045f))) {
+        Box {
         Column {
             if(visual) PostPreview(item,Modifier.fillMaxWidth().height(108.dp))
-            Row(Modifier.padding(start=14.dp,end=14.dp,top=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(start=14.dp,end=if(visual) 14.dp else 48.dp,top=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 UiIcon(typeIcon(item.type),modifier=Modifier.size(16.dp),tint=typeColor(item.type))
                 Text(typeLabel(context,item.type),color=typeColor(item.type),fontSize=11.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
             }
@@ -136,11 +207,15 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
             val status=if(item.status.startsWith("processing") || PostContent.failed(item)) PostContent.stage(item,AppLanguage.code(context)) else preview.ifBlank { if(item.status.startsWith("pending_ai") || item.status=="saved") PostContent.stage(item,AppLanguage.code(context)) else item.source }
             Text(status,Modifier.padding(start=14.dp,end=14.dp,top=6.dp,bottom=12.dp),color=appMuted,fontSize=12.sp,maxLines=if(visual) 2 else 4,overflow=TextOverflow.Ellipsis)
         }
+        IconButton(onClick=onRefresh,modifier=Modifier.align(Alignment.TopEnd).testTag("post-refresh:${item.id}").background(appPanel.copy(alpha=.85f),RoundedCornerShape(bottomStart=16.dp))) {
+            UiIcon(R.drawable.ui_refresh,context.uiString(R.string.refresh_post))
+        }
+        }
     }
 }
 
-internal fun typeIcon(type: String): Int = when(type) { "image"->R.drawable.ui_image;"note","pdf","transcript"->R.drawable.ui_note;"audio"->R.drawable.ui_mic;"video","youtube"->R.drawable.ui_play;else->R.drawable.ui_web }
-internal fun typeLabel(context: android.content.Context,type: String): String = when(type) { "image"->context.uiString(R.string.type_image);"note"->context.uiString(R.string.type_note);"pdf"->context.uiString(R.string.filter_pdf);"audio"->context.uiString(R.string.filter_audio);"video"->context.uiString(R.string.filter_video);"youtube"->context.uiString(R.string.filter_youtube);"transcript"->context.uiString(R.string.type_transcript);"web"->context.uiString(R.string.filter_web);else->type.replaceFirstChar { it.uppercase() } }
+internal fun typeIcon(type: String): Int = when(type) { "image"->R.drawable.ui_image;"note","pdf","transcript","chat"->R.drawable.ui_note;"audio"->R.drawable.ui_mic;"video","youtube"->R.drawable.ui_play;else->R.drawable.ui_web }
+internal fun typeLabel(context: android.content.Context,type: String): String = when(type) { "chat"->context.uiString(R.string.free_chat);"translation"->context.uiString(R.string.translation);"image"->context.uiString(R.string.type_image);"note"->context.uiString(R.string.type_note);"pdf"->context.uiString(R.string.filter_pdf);"audio"->context.uiString(R.string.filter_audio);"video"->context.uiString(R.string.filter_video);"youtube"->context.uiString(R.string.filter_youtube);"transcript"->context.uiString(R.string.type_transcript);"web"->context.uiString(R.string.filter_web);else->type.replaceFirstChar { it.uppercase() } }
 
 @Composable internal fun PostPreview(item: BrainItem,modifier: Modifier=Modifier) {
     val bmp=remember(item.thumbnail) { runCatching {

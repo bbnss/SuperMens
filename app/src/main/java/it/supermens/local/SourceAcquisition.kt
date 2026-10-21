@@ -113,15 +113,12 @@ object SourceAcquisition {
         when(item.type) {
             "video" -> ProcessingGuard.exclusive { VideoStorage.prepare(context,store,item) }
             "pdf" -> {
-                if(item.pdfPages>0 || item.pendingMedia.isNotBlank() || (item.attachment.isNotBlank() && item.documentUri.isBlank())) return
-                // Persist a temporary source snapshot now, including cloud-provider bytes.
-                val file=File(File(context.filesDir,"pending").apply { mkdirs() },"${item.id}.pdf")
-                try { context.contentResolver.openInputStream(android.net.Uri.parse(item.documentUri))?.use { input ->file.outputStream().use { input.copyTo(it) } } ?: error(context.uiString(R.string.pdf_missing_original));store.update(item.id,pendingMedia=file.absolutePath) } catch(e:Exception) {file.delete();throw e}
+                DocumentStorage.retain(context,store,item.id)
             }
             "youtube" -> {
                 val result=YoutubeCaptions.fetchWithFallback(context,item.sourceUrl)
                 if(result.title.isNotBlank()) store.update(item.id,title=result.title)
-                if(result.segments.isNotEmpty()) store.addSegments(item.id,result.segments.map { it.copy(itemId=item.id) })
+                if(result.segments.isNotEmpty()) store.addSegments(item.id,store.segments(item.id).filter {PostContent.isAddition(it)}+result.segments.map { it.copy(itemId=item.id) })
                 else if(result.reason!="video senza sottotitoli") error(result.reason)
                 val vid=Regex("(?:v=|youtu\\.be/|shorts/)([A-Za-z0-9_-]{11})").find(item.sourceUrl)?.groupValues?.get(1)
                 if(vid!=null) preview(context,store,item,listOf("https://img.youtube.com/vi/$vid/hqdefault.jpg"))
@@ -168,7 +165,7 @@ object SourceAcquisition {
                 page=current.copy(title=current.title.ifBlank {embed.optString("title")},images=if(image!=null) listOf(image) else current.images)
             }
             if(page==null) {
-                val available=store.segments(item.id).filter {it.source=="testo condiviso"}.joinToString("\n\n") {it.text}.ifBlank {item.body}
+                val available=store.segments(item.id).filter {PostContent.isAddition(it)}.joinToString("\n\n") {it.text}.ifBlank {item.body}
                 if(available.replace(Regex("https?://\\S+"),"").trim().isBlank()) throw html.exceptionOrNull() ?: IllegalStateException("Public source unavailable")
                 page=PublicPage.Content("","",emptyList(),true)
             }
@@ -180,9 +177,9 @@ object SourceAcquisition {
             val (html,finalUrl)=get(item.sourceUrl)
             content=content.copy(images=PublicPage.parse(html,finalUrl,true).images)
         }
-        val shared=store.segments(item.id).filter { it.source=="testo condiviso" }.ifEmpty { if(item.body.isNotBlank()) listOf(Segment(0,item.id,item.body,-1,-1,"testo condiviso")) else emptyList() }
+        val shared=store.segments(item.id).filter { PostContent.isAddition(it) }.ifEmpty { if(item.body.isNotBlank()) listOf(Segment(0,item.id,item.body,-1,-1,"testo condiviso")) else emptyList() }
         if(content.text.isNotBlank()) store.addSegments(item.id,shared+Segment(0,item.id,content.text,-1,-1,if(content.limited) "metadati pubblici" else "web"))
-        if(content.title.isNotBlank()) store.update(item.id,title=content.title.take(150))
+        if(content.title.isNotBlank()) store.update(item.id,title=if(item.titleState=="generated") null else content.title.take(150))
         store.update(item.id,sourceQuality=quality)
         preview(context,store,item,content.images)
     }

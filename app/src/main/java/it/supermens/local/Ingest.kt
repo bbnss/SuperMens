@@ -105,17 +105,16 @@ object Ingest {
         val mime=resolver.getType(uri).takeUnless { it.isNullOrBlank() || it=="application/octet-stream" } ?: mimeHint.orEmpty()
         val name=resolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { if(it.moveToFirst()) it.getString(0) else null } ?: context.uiString(R.string.attachment_label)
         val type=when { mime=="application/pdf" || name.endsWith(".pdf",true)->"pdf"; mime.startsWith("audio/") || listOf(".m4a",".mp3",".wav",".ogg",".flac").any { name.endsWith(it,true) }->"audio"; mime.startsWith("video/") || listOf(".mp4",".mov",".mkv",".webm").any { name.endsWith(it,true) }->"video"; mime.startsWith("image/") || listOf(".jpg",".jpeg",".png",".webp",".heic").any { name.endsWith(it,true) }->"image"; name.endsWith(".vtt",true)||name.endsWith(".srt",true)->"transcript"; else->"file" }
-        val persistentPdf=type in setOf("pdf","video") && DocumentStorage.persist(context,uri)
-        val stagedVideo=if(type=="video" || (type=="pdf" && !persistentPdf)) VideoStorage.stage(context,uri) else null
+        val persistentVideo=type=="video" && DocumentStorage.persist(context,uri)
+        val stagedVideo=if(type=="video") VideoStorage.stage(context,uri) else null
         val target=when {
             type=="video" -> null
-            type=="pdf" && !persistentPdf -> null
-            persistentPdf -> null
+            type=="pdf" -> DocumentStorage.copyPdf(context,uri)
             type=="image" -> ImageStorage.import(context,uri,name)
             else -> copyAttachment(context,uri,name)
         }
         val link=url.find(sharedText)?.value?.trimEnd('.',',',')',';').orEmpty()
-        val id=try { store.add(type,name,sourceUrl=link,body=sharedText,attachment=target?.absolutePath.orEmpty(),thumbnail=if(type=="image") target?.absolutePath.orEmpty() else "",documentUri=if(persistentPdf || type=="pdf") uri.toString() else "") }
+        val id=try { store.add(type,name,sourceUrl=link,body=sharedText,attachment=target?.absolutePath.orEmpty(),thumbnail=if(type=="image") target?.absolutePath.orEmpty() else "",documentUri=if(persistentVideo) uri.toString() else "") }
             catch(e: Exception) { target?.delete();stagedVideo?.delete();throw e }
         if(stagedVideo!=null) store.update(id,pendingMedia=stagedVideo.absolutePath)
         if(sharedText.isNotBlank()) store.addSegments(id,listOf(Segment(0,id,sharedText,-1,-1,"testo condiviso")))
@@ -134,20 +133,47 @@ object Ingest {
         }
         enqueue(context,id,manual=true)
     }
-    fun relinkPdf(context: Context, store: BrainStore, id: String, uri: Uri) {
-        val item=store.get(id) ?: error(context.uiString(R.string.item_missing))
-        store.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(id))
-        require(item.type=="pdf") { context.uiString(R.string.not_pdf) }
-        val persistent=DocumentStorage.persist(context,uri)
-        val staged=if(persistent) null else VideoStorage.stage(context,uri)
-        try { store.update(id,documentUri=uri.toString(),pendingMedia=staged?.absolutePath.orEmpty(),pdfPages=0,status="saved") }
-        catch(e: Exception) { staged?.delete();throw e }
-        if(item.pendingMedia.isNotBlank()) File(item.pendingMedia).delete()
-        if(item.documentUri.isNotBlank() && item.documentUri!=uri.toString() && store.list().none { it.documentUri==item.documentUri }) runCatching {
-            context.contentResolver.releasePersistableUriPermission(Uri.parse(item.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        enqueue(context,id,manual=true)
+    fun relinkPdf(context: Context, store: BrainStore, id: String, uri: Uri, requestId: String? = null) {
+        if(requestId!=null && relinkRecorded(store,requestId)) {ProcessingQueue.wake(context);return}
+        require(store.get(id)?.type=="pdf") { context.uiString(R.string.not_pdf) }
+        val copy=DocumentStorage.copyPdf(context,uri)
+        val name=runCatching {DocumentStorage.displayName(context,uri)}.getOrDefault("document.pdf")
+        var committed=false
+        try {
+            ProcessingGuard.exclusive {
+                val db=store.writableDatabase
+                var previous:BrainItem?=null
+                db.beginTransaction()
+                try {
+                    if(requestId!=null && relinkRecorded(store,requestId)) {
+                        db.setTransactionSuccessful()
+                        return@exclusive
+                    }
+                    val item=store.get(id) ?: error(context.uiString(R.string.item_missing))
+                    previous=item
+                    db.delete("summary_chunks","item_id=?",arrayOf(id))
+                    db.delete("processing_jobs","item_id=? AND kind IN ('acquire','process','summary')",arrayOf(id))
+                    store.addSegments(id,store.segments(id).filter {PostContent.isAddition(it)})
+                    store.update(id,title=name,titleState="pending",summary="",thumbnail="",attachment=copy.absolutePath,
+                        documentUri="",pendingMedia="",pdfPages=0,status="saved")
+                    if(requestId!=null) db.execSQL("INSERT INTO ingest_receipts VALUES(?,?)",arrayOf(requestId,org.json.JSONArray(listOf(id)).toString()))
+                    db.setTransactionSuccessful()
+                } finally {db.endTransaction()}
+                committed=true
+                previous?.let {item ->
+                    listOf(item.attachment,item.pendingMedia,item.thumbnail).filter {it.isNotBlank() && it!=copy.absolutePath}.distinct().forEach {File(it).delete()}
+                    if(item.documentUri.isNotBlank() && store.list().none {it.documentUri==item.documentUri}) runCatching {
+                        context.contentResolver.releasePersistableUriPermission(Uri.parse(item.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+            }
+        } finally {if(!committed) copy.delete()}
+        if(committed) enqueue(context,id,manual=true) else ProcessingQueue.wake(context)
     }
+
+    private fun relinkRecorded(store: BrainStore, requestId: String): Boolean = store.readableDatabase.rawQuery(
+        "SELECT 1 FROM ingest_receipts WHERE request_id=?",arrayOf(requestId)).use {it.moveToFirst()}
+
     private fun copyAttachment(context:Context,uri:Uri,name:String):File {
         val dir=File(context.filesDir,"attachments").apply { mkdirs() }
         val ext=name.substringAfterLast('.',"bin").take(8).filter { it.isLetterOrDigit() }.ifBlank { "bin" }
@@ -161,5 +187,5 @@ object Ingest {
         if(deferred!=null) deferred.add {ProcessingQueue.enqueue(context,id,manual,enrichOnly)}
         else ProcessingQueue.enqueue(context,id,manual,enrichOnly)
     }
-    fun reschedulePending(context:Context,store:BrainStore) { ProcessingQueue.reconcile(context,store);ProcessingQueue.wake(context) }
+    fun reschedulePending(context:Context,store:BrainStore) { ProcessingQueue.reconcile(context,store);ProcessingQueue.wake(context);DocumentStorage.scheduleRecovery(context) }
 }

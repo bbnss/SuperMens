@@ -35,7 +35,7 @@ object PdfTextExtractor {
                 // Keep blank pages too, so a fully extracted document has a record for every page.
                 results+=Segment(0,item.id,content,-1,index+1,if(native.isNotBlank()) "pdf" else "ocr")
             } } } finally { recognizer?.close() }
-            store.addSegments(item.id,store.segments(item.id).filter { it.source=="testo condiviso" }+results)
+            store.addSegments(item.id,store.segments(item.id).filter { PostContent.isAddition(it) }+results)
             store.update(item.id,pdfPages=renderer.pageCount)
             val first=renderer.openPage(0)
             first.use { page->
@@ -51,11 +51,6 @@ object PdfTextExtractor {
                     } catch(e: Exception) { thumb.delete();throw e }
                 } finally { bmp.recycle() }
             }
-        }
-        // A relinked old copy is removed only after all pages have been extracted successfully.
-        if(item.documentUri.isNotBlank() && item.attachment.isNotBlank() && DocumentStorage.hasPermission(context,item.documentUri)) {
-            store.update(item.id,attachment="")
-            File(item.attachment).delete()
         }
     }
 }

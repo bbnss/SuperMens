@@ -24,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -279,6 +280,21 @@ class MainActivity:ComponentActivity() {
 @Composable private fun App(activity:MainActivity) {
     val context=LocalContext.current;val store=remember { BrainStore(context) };val scope=rememberCoroutineScope()
     var current by rememberSaveable { mutableStateOf<String?>(null) };var screen by rememberSaveable { mutableStateOf("home") };var refresh by remember { mutableIntStateOf(0) };var message by remember { mutableStateOf("") }
+    var conversationType by rememberSaveable {mutableStateOf("chat")}
+    val homeGridState=rememberLazyGridState()
+    var expandedDays by rememberSaveable {mutableStateOf(arrayListOf<String>())}
+    var homeAnchor by rememberSaveable {mutableStateOf<String?>(null)}
+    var homeOffset by rememberSaveable {mutableIntStateOf(0)}
+    fun rememberHomePosition() {
+        val first=homeGridState.layoutInfo.visibleItemsInfo.firstOrNull {it.index==homeGridState.firstVisibleItemIndex}
+        homeAnchor=first?.key as? String
+        homeOffset=homeGridState.firstVisibleItemScrollOffset
+    }
+    fun openPost(item:BrainItem) {
+        if(screen=="home") rememberHomePosition()
+        current=item.id
+        if(item.type in setOf("chat","translation")) {conversationType=item.type;screen="conversation"} else screen="detail"
+    }
     var showNote by rememberSaveable { mutableStateOf(false) };var noteText by rememberSaveable { mutableStateOf("") };var query by rememberSaveable { mutableStateOf("") };var filter by rememberSaveable { mutableStateOf("all") }
     val items by produceState<List<BrainItem>>(emptyList(),refresh,query,filter,screen) { value=withContext(Dispatchers.IO){store.list(query,filter)} }
     val archive by produceState<List<BrainItem>>(emptyList(),refresh) { value=withContext(Dispatchers.IO){store.list()} }
@@ -307,6 +323,13 @@ class MainActivity:ComponentActivity() {
     var showActivities by remember { mutableStateOf(false) }
     var lastError by rememberSaveable { mutableStateOf("") }
     fun reportError(text: String) { lastError=text.ifBlank { context.uiString(R.string.operation_failed) };message=lastError }
+    fun refreshPost(item:BrainItem) {
+        scope.launch {
+            runCatching {withContext(Dispatchers.IO) {ProcessingQueue.refresh(context,item.id)}}
+                .onSuccess {refresh++;message=context.uiString(R.string.queued)}
+                .onFailure {reportError(it.message.orEmpty())}
+        }
+    }
     val snackbar=remember { SnackbarHostState() }
     LaunchedEffect(message) { if(message.isNotBlank()) { val shown=message;snackbar.showSnackbar(shown,duration=SnackbarDuration.Short);if(message==shown) message="" } }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -366,13 +389,30 @@ class MainActivity:ComponentActivity() {
             pendingFiles=arrayListOf();fileRequest=null
         }
     }
-    var relinkTarget by remember { mutableStateOf<String?>(null) }
-    val pdfPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri->
-        val target=relinkTarget;relinkTarget=null
-        if(uri!=null && target!=null) scope.launch(Dispatchers.IO) {
-            runCatching { Ingest.relinkPdf(context,store,target,uri) }
-                .onSuccess { withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.pdf_relinked)} }
-                .onFailure { withContext(Dispatchers.Main){reportError(it.message ?: context.uiString(R.string.pdf_relink_failed))} }
+    var relinkTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var pdfRelinkWarning by rememberSaveable {mutableStateOf<String?>(null)}
+    var pdfReplacementUri by rememberSaveable {mutableStateOf<String?>(null)}
+    var pdfReplacementName by rememberSaveable {mutableStateOf("")}
+    var replacingPdf by rememberSaveable {mutableStateOf(false)}
+    var pdfReplaceRequest by rememberSaveable {mutableStateOf("")}
+    var pdfReplacementRefresh by remember {mutableIntStateOf(0)}
+    LaunchedEffect(replacingPdf,pdfReplacementRefresh) {
+        if(replacingPdf && relinkTarget!=null && pdfReplacementUri!=null) {
+            val target=relinkTarget!!;val reference=pdfReplacementUri!!
+            runCatching {withContext(Dispatchers.IO) {Ingest.relinkPdf(context,store,target,Uri.parse(reference),pdfReplaceRequest)}}
+                .onSuccess {refresh++;message=context.uiString(R.string.pdf_relinked);pdfReplacementUri=null;relinkTarget=null}
+                .onFailure {if(it is CancellationException) throw it;reportError(it.message ?: context.uiString(R.string.pdf_relink_failed))}
+            replacingPdf=false
+        }
+    }
+    val pdfPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri==null) relinkTarget=null
+        else {
+            // Preserve access while the user reviews the second confirmation or rotates.
+            DocumentStorage.persist(context,uri)
+            pdfReplaceRequest="pdf-relink:"+UUID.randomUUID().toString()
+            pdfReplacementUri=uri.toString()
+            pdfReplacementName=runCatching {DocumentStorage.displayName(context,uri)}.getOrDefault("document.pdf")
         }
     }
     val videoPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri ->
@@ -382,7 +422,7 @@ class MainActivity:ComponentActivity() {
                 .onSuccess {refresh++;message=context.uiString(R.string.queued)}.onFailure {reportError(it.message.orEmpty())}
         }
     }
-    val transcriptPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri-> if(uri!=null && current!=null) scope.launch(Dispatchers.IO) { runCatching { val targetId=current!!;val raw=context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val segments=YoutubeCaptions.parse(raw).ifEmpty { listOf(Segment(0,targetId,raw,-1,-1,"import")) };store.addSegments(targetId,segments.map { it.copy(itemId=targetId,source="import") });Ingest.enqueue(context,targetId,true,manual=true) }.onSuccess { withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.transcript_imported)} }.onFailure { withContext(Dispatchers.Main){reportError(it.message ?: context.uiString(R.string.import_failed))} } } }
+    val transcriptPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri-> if(uri!=null && current!=null) scope.launch(Dispatchers.IO) { runCatching { val targetId=current!!;val raw=context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }; val segments=YoutubeCaptions.parse(raw).ifEmpty { listOf(Segment(0,targetId,raw,-1,-1,"import")) };store.addSegments(targetId,store.segments(targetId).filter {PostContent.isAddition(it)}+segments.map { it.copy(itemId=targetId,source="import") });Ingest.enqueue(context,targetId,true,manual=true) }.onSuccess { withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.transcript_imported)} }.onFailure { withContext(Dispatchers.Main){reportError(it.message ?: context.uiString(R.string.import_failed))} } } }
     val exportPicker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri->if(uri!=null) scope.launch(Dispatchers.IO){runCatching { Backup.export(context,store,uri) }.onSuccess{withContext(Dispatchers.Main){message=context.uiString(R.string.archive_exported)}}.onFailure{withContext(Dispatchers.Main){reportError(it.message.orEmpty())}}} }
     val importPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri->if(uri!=null) scope.launch(Dispatchers.IO){runCatching { Backup.import(context,store,uri).also {Ingest.reschedulePending(context,store)} }.onSuccess{withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.items_imported,it)}}.onFailure{withContext(Dispatchers.Main){reportError(it.message.orEmpty())}}} }
     val modelPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri->if(uri!=null) scope.launch(Dispatchers.IO){runCatching {LocalModel.import(context,uri)}.onSuccess { withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.model_imported)} }.onFailure { withContext(Dispatchers.Main){reportError(it.message ?: context.uiString(R.string.model_import_failed))} }} }
@@ -392,7 +432,7 @@ class MainActivity:ComponentActivity() {
         if(granted) runCatching {activity.startDictation({ spoken->scope.launch(Dispatchers.IO){val id=store.add("note",spoken.lineSequence().first().take(90),body=spoken,source="dettatura ML Kit Basic");Ingest.enqueue(context,id);withContext(Dispatchers.Main){refresh++;message=context.uiString(R.string.dictated_note_saved)}} },{reportError(it)},{refresh++;message=context.uiString(R.string.dictation_audio_saved)})}.onFailure{reportError(it.message.orEmpty())}
         else reportError(context.uiString(R.string.microphone_denied))
     }
-    LaunchedEffect(screen) { while(true) { delay(3500);if(screen=="home" || screen=="detail") refresh++ } }
+    LaunchedEffect(screen) { while(true) { delay(if(screen=="conversation") 1200 else 3500);if(screen in setOf("home","detail","conversation")) refresh++ } }
     LaunchedEffect(screen) { if(screen!="home" && activity.isDictating()) activity.stopDictation() }
     LaunchedEffect(Unit) { var wasReady=false;while(true) {val ready=LocalModel.ready(context);if(ready && !wasReady) ProcessingQueue.wakeProcessing(context);wasReady=ready;delay(5000)} }
     LaunchedEffect(Unit) { if(ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
@@ -408,24 +448,33 @@ class MainActivity:ComponentActivity() {
             }
         }
     }
-    BackHandler(enabled=screen!="home") { screen="home";current=null }
+    var showExit by rememberSaveable {mutableStateOf(false)}
+    BackHandler {
+        if(screen!="home") {screen="home";current=null} else showExit=true
+    }
     MaterialTheme(colors=darkColors(primary=accent,background=bg,surface=panel,onSurface=Color.White)) {
         Scaffold(modifier=Modifier.statusBarsPadding().navigationBarsPadding(),snackbarHost={SnackbarHost(snackbar,Modifier.imePadding().padding(bottom=if(screen=="home" || screen=="detail") 84.dp else 12.dp))},topBar={
             Row(Modifier.fillMaxWidth().height(56.dp).background(bg).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
                 if(screen=="home") {
                     Text(context.uiString(R.string.post_count,archive.size),Modifier.weight(1f),fontSize=20.sp,fontWeight=FontWeight.SemiBold)
                     if(lastError.isNotBlank()) IconButton(onClick={showActivities=true}) { UiIcon(R.drawable.ui_warning,context.uiString(R.string.show_last_error),tint=Color(0xFFFFB5A5)) }
-                    IconButton(onClick={screen="settings"}) { UiIcon(R.drawable.ui_settings,context.uiString(R.string.settings)) }
+                    IconButton(onClick={rememberHomePosition();screen="settings"}) { UiIcon(R.drawable.ui_settings,context.uiString(R.string.settings)) }
                 } else {
                     IconButton(onClick={screen="home";current=null}) { UiIcon(R.drawable.ui_back,context.uiString(R.string.back)) }
-                    Text(if(screen=="settings") context.uiString(R.string.settings) else context.uiString(R.string.post_detail),fontSize=16.sp,color=appMuted)
+                    Text(when(screen) {"settings" ->context.uiString(R.string.settings);"conversation" ->context.uiString(if(conversationType=="translation") R.string.translation else R.string.free_chat);else ->context.uiString(R.string.post_detail)},fontSize=16.sp,color=appMuted)
+                    if(screen in setOf("detail","conversation") && current!=null) {
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick={archive.firstOrNull {it.id==current}?.let {refreshPost(it)}}) {
+                            UiIcon(R.drawable.ui_refresh,context.uiString(R.string.refresh_post))
+                        }
+                    }
                 }
             }
         },backgroundColor=bg) { pad->
             Box(Modifier.padding(pad).fillMaxSize()) {
                 when(screen) {
                     "home"-> HomeScreen(items,previews,archive.size,query,{query=it},filter,{filter=it},entries,activity.isRecording(),activity.isDictating(),activity.dictationStatus(),cameraSaving,{showActivities=true},{stopVoice()},
-                        {current=it.id;screen="detail"},{showNote=true},
+                        {openPost(it)},{showNote=true},
                         {if(!activity.isDictating()) permission.launch(Manifest.permission.RECORD_AUDIO)},
                         {if(!activity.isRecording()) dictationPermission.launch(Manifest.permission.RECORD_AUDIO)},
                         {fileRequest=UUID.randomUUID().toString();filePicker.launch(arrayOf("application/pdf","image/*","audio/*","video/*","text/*"))},
@@ -437,12 +486,33 @@ class MainActivity:ComponentActivity() {
                                 runCatching { withContext(Dispatchers.IO){Ingest.text(context,store,pasted)} }
                                     .onSuccess {refresh++;message=context.uiString(R.string.pasted_saved)}.onFailure {reportError(it.message.orEmpty())}
                             } else message=context.uiString(R.string.clipboard_empty)
-                        }, modelBanner={ModelBanner(modelBannerDismissed,{modelBannerDismissed=true},::reportError)})
-                    "detail"-> current?.let { id->Detail(context,store,id,refresh,{refresh++},{message=it},{reportError(it)},{transcriptPicker.launch(arrayOf("text/*","application/x-subrip"))},{relinkTarget=id;pdfPicker.launch(arrayOf("application/pdf"))},{relinkTarget=id;videoPicker.launch(arrayOf("video/*"))},{screen="home";current=null;refresh++}) }
+                        }, modelBanner={ModelBanner(modelBannerDismissed,{modelBannerDismissed=true},::reportError)},
+                        onTranslation={rememberHomePosition();current=null;conversationType="translation";screen="conversation"},onChat={rememberHomePosition();current=null;conversationType="chat";screen="conversation"},
+                        onRefreshPost=::refreshPost,gridState=homeGridState,expandedDays=expandedDays,onExpandedDays={expandedDays=ArrayList(it)},anchorKey=homeAnchor,anchorOffset=homeOffset,onPosition={key,offset ->homeAnchor=key;homeOffset=offset})
+
+                    "detail"-> current?.let { id->Detail(context,store,id,refresh,{refresh++},{message=it},{reportError(it)},{transcriptPicker.launch(arrayOf("text/*","application/x-subrip"))},{pdfRelinkWarning=id},{relinkTarget=id;videoPicker.launch(arrayOf("video/*"))},{screen="home";current=null;refresh++}) }
                     "settings"->SettingsScreen({message=it},{reportError(it)},{exportPicker.launch("supermens-locale-${System.currentTimeMillis()}.zip")},{importPicker.launch(arrayOf("application/zip"))},{modelPicker.launch(arrayOf("application/octet-stream","*/*"))})
+                    "conversation" -> ConversationScreen(store,current,conversationType,refresh,{refresh++},{current=it;refresh++},{message=it},::reportError,{screen="home";current=null;refresh++})
                 }
             }
         }
+        if(showExit) AlertDialog(onDismissRequest={showExit=false},title={Text(context.uiString(R.string.exit_title))},
+            text={Text(context.uiString(R.string.exit_message))},
+            confirmButton={TextButton(onClick={showExit=false;activity.finish()}) {Text(context.uiString(R.string.exit_confirm))}},
+            dismissButton={TextButton(onClick={showExit=false}) {Text(context.uiString(R.string.exit_stay))}})
+        if(pdfRelinkWarning!=null) AlertDialog(onDismissRequest={pdfRelinkWarning=null},title={Text(context.uiString(R.string.relink_pdf))},
+            text={Text(context.uiString(R.string.pdf_replace_warning))},
+            confirmButton={TextButton(onClick={relinkTarget=pdfRelinkWarning;pdfRelinkWarning=null;pdfPicker.launch(arrayOf("application/pdf"))}) {Text(context.uiString(R.string.pdf_choose_replacement))}},
+            dismissButton={TextButton(onClick={pdfRelinkWarning=null}) {Text(context.uiString(R.string.cancel))}})
+        if(pdfReplacementUri!=null && relinkTarget!=null) AlertDialog(onDismissRequest={if(!replacingPdf) {pdfReplacementUri=null;relinkTarget=null}},
+            title={Text(context.uiString(R.string.pdf_replace_title))},text={Column {
+                Text(context.uiString(R.string.pdf_replace_confirm,pdfReplacementName))
+                if(replacingPdf) CircularProgressIndicator(Modifier.padding(top=16.dp).size(24.dp))
+            }},confirmButton={TextButton(enabled=!replacingPdf,onClick={
+                replacingPdf=true
+                pdfReplacementRefresh++
+            }) {Text(context.uiString(R.string.pdf_replace_action))}},
+            dismissButton={TextButton(enabled=!replacingPdf,onClick={pdfReplacementUri=null;relinkTarget=null}) {Text(context.uiString(R.string.cancel))}})
         if(showActivities) AlertDialog(onDismissRequest={showActivities=false},title={Text(context.uiString(R.string.activities))},text={
             Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 if(activity.isRecording() || activity.isDictating()) {
@@ -456,7 +526,7 @@ class MainActivity:ComponentActivity() {
                     TextButton(onClick={lastError=""}) { Text(context.uiString(R.string.hide_error)) }
                 }
                 entries.forEach { entry->
-                    Column(Modifier.fillMaxWidth().clickable {current=entry.item.id;screen="detail";showActivities=false}) {
+                    Column(Modifier.fillMaxWidth().clickable {openPost(entry.item);showActivities=false}) {
                         Text(entry.item.title,fontWeight=FontWeight.SemiBold)
                         Text(entry.text,fontSize=13.sp,color=appMuted)
                         if(entry.failed && entry.item.status.contains(" · ")) Text(entry.item.status.substringAfter(" · "),fontSize=12.sp,color=Color(0xFFFFB5A5))
@@ -561,8 +631,8 @@ class MainActivity:ComponentActivity() {
                 if(i.sourceQuality.endsWith("_preview_failed")) Text(context.uiString(R.string.preview_unavailable),fontSize=12.sp,color=appMuted)
                 if((i.type=="x" || PublicPage.supportedHost(i.sourceUrl)) && !i.sourceQuality.startsWith("complete")) {
                     Text(context.uiString(R.string.source_incomplete),fontSize=12.sp,color=appMuted)
-                    TextButton(onClick={integrateText=true}) {Text(context.uiString(R.string.integrate_text))}
                 }
+                TextButton(enabled=!busy,onClick={integrateText=true}) {Text(context.uiString(R.string.integrate_text))}
                 if(i.sourceUrl.isNotBlank()) TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(i.sourceUrl)))}}) {Text(context.uiString(R.string.open_source))}
                 if(i.type in setOf("pdf","video") || i.attachment.isNotBlank()) {
                     TextButton(onClick={
@@ -578,8 +648,8 @@ class MainActivity:ComponentActivity() {
                 }
                 if(i.type=="pdf") {
                     TextButton(enabled=!busy,onClick=onRelinkPdf) {Text(context.uiString(R.string.relink_pdf))}
-                    if(i.documentUri.isBlank() && i.attachment.isBlank()) Text(context.uiString(R.string.original_not_retained),fontSize=12.sp,color=appMuted)
-                    if(i.pdfPages>0) Text(context.uiString(R.string.pdf_page_count,i.pdfPages,if(i.documentUri.isNotBlank()) context.uiString(R.string.original_linked) else if(i.attachment.isNotBlank()) context.uiString(R.string.copy_kept) else context.uiString(R.string.original_not_retained)),fontSize=12.sp,color=appMuted)
+                    if(i.attachment.isBlank() || !File(i.attachment).isFile) Text(context.uiString(R.string.pdf_copy_missing),fontSize=12.sp,color=appMuted)
+                    if(i.pdfPages>0) Text(context.uiString(R.string.pdf_page_count,i.pdfPages,if(i.attachment.isNotBlank()) context.uiString(R.string.copy_kept) else if(i.documentUri.isNotBlank()) context.uiString(R.string.original_linked) else if(i.attachment.isNotBlank()) context.uiString(R.string.copy_kept) else context.uiString(R.string.original_not_retained)),fontSize=12.sp,color=appMuted)
                 }
                 if((i.type=="audio" || (i.type=="note" && i.source=="dettatura Gemma")) && i.attachment.isNotBlank()) TextButton(onClick={
                     runCatching {player?.release();player=MediaPlayer().apply {setDataSource(i.attachment);prepare();start()}}.onFailure {onError(it.message.orEmpty())}
@@ -597,6 +667,7 @@ class MainActivity:ComponentActivity() {
                             else if(i.status.startsWith("processing")) context.uiString(R.string.description_preparing)
                             else context.uiString(R.string.description_pending)
                         } else i.summary.ifBlank { context.uiString(R.string.processing) },fontSize=14.sp)
+                        if(i.type=="image" && i.summary.isNotBlank()) {Text(context.uiString(R.string.summary),fontWeight=FontWeight.Bold,color=accent);Text(i.summary)}
                         if(detailJobs.any {it.kind!="question" && it.state in setOf("waiting","running","failed")} && (i.status.startsWith("processing") || i.status.startsWith("pending_ai") || PostContent.failed(i))) Text(PostContent.stage(i,AppLanguage.code(context)),fontSize=12.sp,color=appMuted)
                         if(i.status.contains(" · ")) Text(i.status.substringAfter(" · "),fontSize=11.sp,color=appMuted)
                     }
@@ -653,7 +724,7 @@ class MainActivity:ComponentActivity() {
                 }
                 item(key="actions") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Column(horizontalAlignment=Alignment.Start) {
-                    if(i.type!="image") TextButton(enabled=!busy && i.body.isNotBlank(),onClick={
+                    TextButton(enabled=!busy && i.body.isNotBlank(),onClick={
                         scope.launch {withContext(Dispatchers.IO) {ProcessingQueue.summary(context,id)};onRefresh();onMessage(context.uiString(R.string.queued))}
                     }) {Text(context.uiString(R.string.regenerate_summary))}
                     if(i.type=="youtube") TextButton(enabled=!busy,onClick={Ingest.enqueue(context,id,false,manual=true);onMessage(context.uiString(R.string.captions_retry_started))}){Text(context.uiString(R.string.retry_captions))}
@@ -681,10 +752,15 @@ class MainActivity:ComponentActivity() {
             }
         }
     }
-    if(integrateText) AlertDialog(onDismissRequest={integrateText=false},title={Text(context.uiString(R.string.integrate_text))},text={OutlinedTextField(addedText,{addedText=it},Modifier.fillMaxWidth(),maxLines=10)},confirmButton={TextButton(enabled=addedText.isNotBlank() && !busy,onClick={scope.launch {
-        withContext(Dispatchers.IO) {ProcessingGuard.exclusive {store.addSegments(id,store.segments(id)+Segment(0,id,addedText,-1,-1,"testo condiviso"));store.update(id,sourceQuality="complete")};ProcessingQueue.summary(context,id)}
-        addedText="";integrateText=false;onRefresh()
-    }}) {Text(context.uiString(R.string.save))}},dismissButton={TextButton(onClick={integrateText=false}) {Text(context.uiString(R.string.cancel))}})
+    var savingAddition by remember {mutableStateOf(false)}
+    if(integrateText) TextEntryDialog(context.uiString(R.string.integrate_text),addedText,{addedText=it},savingAddition,onSave={
+        savingAddition=true
+        scope.launch {
+            runCatching {withContext(Dispatchers.IO) {ProcessingGuard.exclusive {store.integrateText(id,addedText)}}}
+                .onSuccess {addedText="";integrateText=false;onRefresh()}.onFailure {onError(it.message.orEmpty())}
+            savingAddition=false
+        }
+    },onDismiss={integrateText=false})
 
 }
 

@@ -12,8 +12,10 @@ import java.io.File
 
 internal object PostFile {
     fun intent(context:Context,item:BrainItem):Intent {
+        val localPdf=item.attachment.takeIf {item.type=="pdf" && it.isNotBlank() && File(it).isFile}
+            ?.let {FileProvider.getUriForFile(context,"${context.packageName}.files",File(it))}
         val original=item.documentUri.takeIf {it.isNotBlank()}?.let {Uri.parse(it)}
-        val uri=original?.takeIf {runCatching {context.contentResolver.openFileDescriptor(it,"r")?.use {true} ?: false}.getOrDefault(false)}
+        val uri=localPdf ?: original?.takeIf {runCatching {context.contentResolver.openFileDescriptor(it,"r")?.use {true} ?: false}.getOrDefault(false)}
             ?: item.attachment.takeIf {it.isNotBlank() && File(it).isFile}?.let {FileProvider.getUriForFile(context,"${context.packageName}.files",File(it))}
             ?: throw java.io.FileNotFoundException(context.uiString(if(item.type=="video") R.string.video_relink_hint else R.string.pdf_relink_hint))
         val extension=File(item.attachment.ifBlank {item.title}).extension.lowercase()

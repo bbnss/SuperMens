@@ -11,8 +11,8 @@ android {
         applicationId = "it.supermens.offline"
         minSdk = 35
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.4"
+        versionCode = 10
+        versionName = "0.2.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -48,6 +48,8 @@ val prepareLicenseAssets by tasks.registering(Sync::class) {
         include("LICENSE","THIRD_PARTY_NOTICE.txt")
         rename {name -> "LiteRT-LM-$name"}
     }
+    doFirst { destinationDir.walkTopDown().filter { it.isFile }.forEach { it.setWritable(true, true) } }
+    filePermissions { unix("644") }
     into(layout.buildDirectory.dir("generated/licenseAssets/licenses"))
 }
 android.sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/licenseAssets"))
@@ -82,6 +84,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }

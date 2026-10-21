@@ -36,7 +36,7 @@ AI inference runs locally using **Gemma 4 E2B through LiteRT-LM**. No remote bac
 
 | Content | What SuperMens does |
 | --- | --- |
-| PDFs | Extracts page text with OCR, creates a preview and retains an original-file reference when available. |
+| PDFs | Keeps a private PDF copy, extracts page text with OCR and creates a preview. |
 | Photos and screenshots | Compresses images, extracts text and generates a description. |
 | Imported audio and video | Transcribes speech locally and summarizes the extracted text. |
 | YouTube links | Imports accessible captions, title and preview for local analysis. |
@@ -53,11 +53,18 @@ Share content from other Android apps, import files, paste a link or capture a p
 - **Process while charging:** capture online material immediately, then run automatic processing when connected to power. Manual questions and actions remain available on battery.
 - **Resume interrupted work:** persistent queues and checkpoints preserve completed transcription clips, PDF pages and summary steps. Heavy tasks run one at a time.
 - **Read comfortably:** long transcripts, OCR and document text start with a compact preview. Expand the complete text, collapse it, or return to the top with one tap.
-- **Open saved files:** launch a compatible viewer from the detail screen. PDFs keep an original-file reference; relink the original if access expires.
+- **Open saved files:** launch a compatible viewer from the detail screen. PDFs open from a permanent private copy, also included in backups. Relinking asks twice before replacing that copy.
 - **Copy and share:** copy summaries, descriptions, OCR and transcripts; share a complete post as image and text or a paginated PDF.
+- **Add missing context:** integrate written or pasted text into any post, preserving the original content. Create or update its summary when you choose.
+- **Daily timeline:** the **All** tab groups posts by creation date and keeps the two-column cards. Each day has an expandable list of clickable post titles. Gemma creates a descriptive one-sentence title together with each post summary; images, chats and translations also receive titles when processed. Existing titles remain until those posts are processed again. No daily-summary inference runs. Returning from a post preserves the timeline position, search, filter and expanded lists. Back from the home asks before leaving the app.
+- **Translate locally:** use the **Translation** entry in the + menu for written/pasted text, text files, recordings or imported audio. Review the transcription before translating; the target language initially follows the device. Choose a common language or enter another language name/code; quality varies. Translation uses separate system instructions and a bundled offline language check; a clearly wrong-language result receives one corrective attempt before showing a retryable error. Use **Retranslate** to reload the original text and its target language. Reopen a translation post to continue translating or chat about its text.
+- **Free chat:** use the **Free chat** entry to converse with the local model using text or transcribed audio. Conversations are saved as posts and can be resumed or summarized. Switch between text and spoken replies; playback uses installed offline Android voices. A small local model can invent facts, especially without supplied context.
 - **Keep your data portable:** export and restore ZIP archives containing structured data, Markdown notes and retained attachments.
+
 - **Keep storage lean:** compressed images and extracted text. Newly imported videos are not retained after preparation; temporary audio is removed after successful transcription.
 - **English and Italian:** the interface follows your preferred device or app language, with English as the fallback.
+
+Shared PDFs carry the project URL in every page footer; image/text shares carry it at the end of the text. Backups include descriptive titles, saved PDF copies, conversations, target languages and audio still awaiting transcription. Older backups remain importable; their daily overviews are ignored.
 
 ## Get started
 
@@ -95,7 +102,7 @@ Public social posts can still be blocked, incomplete or unavailable. YouTube cap
 
 Android may delay background work. After force-stopping the app, reopen it to resume processing.
 
-PDF and video references depend on access to the original file. After moving devices, originals may need to be relinked. Retrying a video transcription after temporary audio has been removed also requires the original.
+PDFs imported from version 0.2.8 keep a permanent private copy. Older PDFs are recovered automatically when their original or temporary copy is still accessible; otherwise they must be relinked. Video references still depend on the original file. Retrying a video transcription after temporary audio has been removed requires that original.
 
 ## Build from source
 

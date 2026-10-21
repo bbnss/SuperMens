@@ -41,6 +41,109 @@ class StorageTest {
         store=BrainStore(context)
     }
     @After fun cleanup() { store.close();root.deleteRecursively() }
+    @Test fun integratePreservesOriginalNoteAndSourceQualityWithoutAutomaticSummary() {
+        val id=store.add("note","Original",body="Original body")
+        store.update(id,summary="Existing summary",status="ready",sourceQuality="limited")
+        store.integrateText(id,"Added words")
+        assertEquals("Original body\nAdded words",store.get(id)!!.body)
+        assertEquals("Existing summary",store.get(id)!!.summary)
+        assertEquals("limited",store.get(id)!!.sourceQuality)
+        assertEquals(listOf("original","manual"),store.segments(id).map {it.source})
+        assertEquals(id,store.list("Added words").single().id)
+        assertTrue(ProcessingQueue.jobs(store).isEmpty())
+    }
+    @Test fun conversationBackupRetainsModesLanguagesReplyLinksAndPendingAudio() {
+        val id=store.add("translation","Translation test")
+        store.setTargetLanguage(id,"fr-FR")
+        val user=store.addMessage(id,"Original words","translate","fr-FR","done")
+        store.addMessage(id,"Mots originaux","translate","fr-FR","done",role="assistant",replyTo=user,limited=true)
+        store.integrateText(id,"Additional context")
+        val audio=File(root,"pending.wav").apply {writeText("audio fixture")}
+        store.addMessage(id,"","chat","fr-FR","transcribing",audio.absolutePath)
+        val archive=File(root,"conversation.zip")
+        Backup.export(context,store,Uri.fromFile(archive))
+        ZipFile(archive).use {zip ->
+            assertEquals(4,JSONObject(zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().readText()).getInt("version"))
+            val markdown=zip.getInputStream(zip.getEntry("notes/$id.md")).bufferedReader().readText()
+            assertTrue(markdown.contains("Original words"));assertTrue(markdown.contains("Mots originaux"));assertTrue(markdown.contains("Additional context"))
+        }
+        assertEquals(1,Backup.import(context,store,Uri.fromFile(archive)))
+        val messages=store.messages(id)
+        assertEquals(3,messages.size)
+        assertEquals(messages[0].id,messages[1].replyTo)
+        assertTrue(messages[1].contextLimited)
+        assertEquals("fr-FR",store.get(id)!!.targetLanguage)
+        assertEquals("audio fixture",File(messages[2].audioPath).readText())
+        assertTrue(store.get(id)!!.body.contains("Additional context"))
+        assertEquals(id,store.list("Mots originaux").single().id)
+        store.delete(id)
+        assertTrue(store.messages(id).isEmpty())
+    }
+    @Test fun backupVersionOneStillImportsWithoutConversationFields() {
+        val id=store.add("note","Legacy",body="Kept")
+        val archive=File(root,"legacy.zip")
+        Backup.export(context,store,Uri.fromFile(archive))
+        val legacy=File(root,"v1.zip")
+        ZipFile(archive).use {zip ->
+            java.util.zip.ZipOutputStream(legacy.outputStream()).use {output ->
+                zip.entries().asSequence().forEach {entry ->
+                    output.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    if(entry.name=="manifest.json") {
+                        val manifest=JSONObject(zip.getInputStream(entry).bufferedReader().readText()).put("version",1)
+                        manifest.getJSONArray("items").getJSONObject(0).apply {remove("messages");remove("targetLanguage")}
+                        output.write(manifest.toString().toByteArray())
+                    } else zip.getInputStream(entry).use {it.copyTo(output)}
+                    output.closeEntry()
+                }
+            }
+        }
+        assertEquals(1,Backup.import(context,store,Uri.fromFile(legacy)))
+        assertEquals("Kept",store.get(id)!!.body);assertEquals("",store.get(id)!!.targetLanguage)
+    }
+    @Test fun interruptedTranslationResumesChunksAndPublishesOnlyOneAnswer() {
+        val id=store.add("translation","Resume")
+        val text="A paragraph with names and numbers 123. ".repeat(100)+"FINAL_SOURCE"
+        val user=store.addMessage(id,text,"translate","fr","pending")
+        val job=ProcessingJob(1,id,"conversation",true,user.toString(),"waiting",0,"",0)
+        val chunks=ConversationText.chunks(text)
+        val translated=mutableListOf<String>()
+        var calls=0
+        val failing=ConversationProcessor(context,store,{}, {},{it()},{true},createTitle={_,_->"Titolo della traduzione"}) {source, _ ->
+            if(++calls==3) throw IllegalStateException("Injected interruption")
+            source.also {translated+=it}
+        }
+        assertTrue(runCatching {failing.process(store.get(id)!!,job)}.isFailure)
+        assertTrue(store.messages(id).none {it.role=="assistant"})
+        val resumed=ConversationProcessor(context,store,{}, {},{it()},{true},createTitle={_,_->"Titolo della traduzione"}) {source, _ ->source.also {translated+=it}}
+        resumed.process(store.get(id)!!,job)
+        resumed.process(store.get(id)!!,job)
+        assertEquals(chunks,translated)
+        val reply=store.messages(id).single {it.role=="assistant"}
+        assertEquals(user,reply.replyTo);assertTrue(reply.text.endsWith("FINAL_SOURCE"))
+        assertEquals("done",store.messages(id).first().state)
+        assertEquals(2,store.messages(id).size)
+    }
+    @Test fun sharedPdfHasProjectFooterOnEveryPageAndTextShareHasOneFinalSignature() {
+        val base=InstrumentationRegistry.getInstrumentation().targetContext
+        val shareContext=object:ContextWrapper(context) {override fun getCacheDir()=base.cacheDir}
+        val id=store.add("note","Shared post",body="Paragraph with preserved text. ".repeat(1000)+" FINAL_EXPORT_MARKER")
+        store.integrateText(id,"Added export context")
+        val text=PostShare.prepare(shareContext,store,id,false).getStringExtra(Intent.EXTRA_TEXT)!!
+        val url=context.getString(R.string.repository_url)
+        assertTrue(text.endsWith("SuperMens · $url"));assertEquals(1,Regex(Regex.escape(url)).findAll(text).count())
+        assertTrue(text.contains("Added export context"))
+        val uri=PostShare.prepare(shareContext,store,id,true).getParcelableExtra(Intent.EXTRA_STREAM,Uri::class.java)!!
+        try {
+            shareContext.contentResolver.openFileDescriptor(uri,"r")!!.use {descriptor ->
+                android.graphics.pdf.PdfRenderer(descriptor).use {renderer ->
+                    assertTrue(renderer.pageCount>1)
+                    val pages=(0 until renderer.pageCount).map {index ->renderer.openPage(index).use {page ->page.textContents.joinToString(" ") {it.text}}}
+                    pages.forEach {assertTrue("Missing footer: $it",it.contains(url))}
+                    assertTrue(pages.joinToString(" ").contains("FINAL_EXPORT_MARKER"))
+                }
+            }
+        } finally {base.cacheDir.resolve("shares").listFiles()?.filter {it.name==uri.lastPathSegment}?.forEach {it.delete()}}
+    }
     @Test fun searchMatchesPrefixesAcrossTitleBodySummaryAndAnswers() {
         val id=store.add("note","Travel planning",body="Budget allocation")
         store.update(id,summary="Booking confirmed",status="ready")
@@ -131,6 +234,7 @@ class StorageTest {
             val entries=manifest.getJSONArray("items")
             val obj=(0 until entries.length()).map { entries.getJSONObject(it) }.first { it.getString("id")==pdfId }
             assertEquals(reference,obj.getString("documentUri"));assertFalse(obj.has("attachment"))
+            // The original is deliberately unavailable; recovery cannot invent its bytes.
             assertFalse(zip.entries().asSequence().any { it.name.endsWith(".pdf") })
         }
         assertEquals(2,Backup.import(context,store,Uri.fromFile(archive)))
@@ -165,31 +269,29 @@ class StorageTest {
         assertTrue(DocumentStorage.persist(context,uri))
         return uri
     }
-    @Test fun persistentPdfImportStoresOnlyReferenceAndText() {
+    @Test fun persistentPdfImportKeepsPrivateCopyAndText() {
         val uri=grantedReference("document")
         try {
             val id=Ingest.file(context,store,uri)
-            assertEquals("",store.get(id)!!.attachment);assertEquals(uri.toString(),store.get(id)!!.documentUri)
-            assertTrue(File(context.filesDir,"attachments").listFiles().isNullOrEmpty())
+            assertTrue(File(store.get(id)!!.attachment).isFile);assertEquals("",store.get(id)!!.documentUri)
             PdfTextExtractor.extract(context,store,store.get(id)!!,ocr={ "Testo conservato" })
             assertEquals(2,store.get(id)!!.pdfPages);assertTrue(store.get(id)!!.body.contains("Testo conservato"))
-            assertEquals("",store.get(id)!!.attachment)
+            assertTrue(File(store.get(id)!!.attachment).isFile)
         } finally { context.contentResolver.releasePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
-    @Test fun temporarySharedPdfStagesSourceAndArchivesOnlyText() {
+    @Test fun temporarySharedPdfKeepsAndArchivesOriginal() {
         val uri=Uri.parse("content://it.supermens.offline.test.documents/temporary")
         context.grantUriPermission(context.packageName,uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)
         assertFalse(DocumentStorage.persist(context,uri))
         val id=Ingest.file(context,store,uri)
         val item=store.get(id)!!
-        assertEquals(uri.toString(),item.documentUri);assertEquals("",item.attachment)
-        val pending=File(item.pendingMedia);assertTrue(pending.isFile)
-        PdfTextExtractor.extract(context,store,item.copy(attachment=item.pendingMedia),ocr={ "Testo condiviso" })
-        pending.delete();store.update(id,pendingMedia="")
+        assertEquals("",item.documentUri);assertTrue(File(item.attachment).isFile)
+        assertEquals("",item.pendingMedia)
+        PdfTextExtractor.extract(context,store,item,ocr={ "Testo condiviso" })
         assertTrue(store.get(id)!!.body.contains("Testo condiviso"))
         val archive=File(root,"temporary-backup.zip")
         Backup.export(context,store,Uri.fromFile(archive))
-        ZipFile(archive).use { zip->assertFalse(zip.entries().asSequence().any { it.name.endsWith(".pdf") }) }
+        ZipFile(archive).use { zip->assertTrue(zip.entries().asSequence().any { it.name.endsWith(".pdf") }) }
     }
     @Test fun nonSeekablePersistentPdfUsesAndRemovesTemporaryCopy() {
         val uri=grantedReference("pipe")
@@ -200,15 +302,16 @@ class StorageTest {
             assertFalse(context.cacheDir.listFiles()!!.any { it.name.startsWith("supermens-pdf-") })
         } finally { context.contentResolver.releasePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
-    @Test fun relinkRemovesPreviousCopyOnlyAfterSuccessfulExtraction() {
+    @Test fun relinkReplacesOnlyAfterNewCopyIsValidated() {
         val original=pdf(1)
         val uri=grantedReference("relinked")
         try {
             val id=store.add("pdf","PDF",body="Testo precedente",attachment=original.absolutePath)
             Ingest.relinkPdf(context,store,id,uri)
-            assertTrue(original.exists());assertEquals("Testo precedente",store.get(id)!!.body)
+            assertFalse(original.exists());assertEquals("",store.get(id)!!.body)
+            assertTrue(File(store.get(id)!!.attachment).isFile)
             PdfTextExtractor.extract(context,store,store.get(id)!!,ocr={ "Testo ricollegato" })
-            assertFalse(original.exists());assertEquals("",store.get(id)!!.attachment)
+            assertFalse(original.exists());assertTrue(File(store.get(id)!!.attachment).isFile)
             assertEquals(2,store.get(id)!!.pdfPages)
         } finally { context.contentResolver.releasePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
@@ -217,8 +320,7 @@ class StorageTest {
         val uri=grantedReference("broken")
         try {
             val id=store.add("pdf","PDF",body="Testo precedente",attachment=original.absolutePath)
-            Ingest.relinkPdf(context,store,id,uri)
-            assertTrue(runCatching { PdfTextExtractor.extract(context,store,store.get(id)!!,ocr={ "" }) }.isFailure)
+            assertTrue(runCatching { Ingest.relinkPdf(context,store,id,uri) }.isFailure)
             assertTrue(original.exists());assertEquals("Testo precedente",store.get(id)!!.body)
             assertEquals(0,store.get(id)!!.pdfPages)
         } finally { context.contentResolver.releasePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -227,7 +329,7 @@ class StorageTest {
         val id=store.add("image","Photo",attachment=image(100,100,"vision.jpg").absolutePath)
         store.addSegments(id,listOf(Segment(0,id,"OCR text",-1,-1,"ocr")))
         var calls=0
-        ImageAnalysis.enrich(store,store.get(id)!!,true) { calls++;"A flower" }
+        ImageAnalysis.enrich(store,store.get(id)!!,true) { calls++;ImageDescription("A flower grows in a garden","A flower") }
         assertEquals(1,calls)
         assertEquals("ready",store.get(id)!!.status)
         assertEquals("",store.get(id)!!.summary)
@@ -242,7 +344,7 @@ class StorageTest {
         assertEquals("pending_ai",store.get(id)!!.status)
         assertEquals("Available OCR",PostContent.copyText(store.get(id)!!,store.segments(id)))
         assertEquals("",store.get(id)!!.summary)
-        assertTrue(runCatching {ImageAnalysis.enrich(store,store.get(id)!!,true) {""}}.isFailure)
+        assertTrue(runCatching {ImageAnalysis.enrich(store,store.get(id)!!,true) {ImageDescription("Title","")}}.isFailure)
         assertEquals("Available OCR",PostContent.copyText(store.get(id)!!,store.segments(id)))
     }
     @Test fun cameraSavesOnlyWebpAndRetryDoesNotDuplicateThePost() {
@@ -294,4 +396,93 @@ class StorageTest {
             assertTrue(runCatching {PostFile.intent(actual,store.get(missing)!!)}.exceptionOrNull() is java.io.FileNotFoundException)
         } finally {attachment.delete()}
     }
+    @Test fun versionSixMigrationKeepsPostsAndRetiresDailyDataWithoutQueuingTitles() {
+        val id=store.add("note","Legacy topic",body="Original")
+        store.update(id,summary="Existing summary",status="ready")
+        store.close()
+        SQLiteDatabase.openDatabase(context.getDatabasePath("supermens.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->
+            db.execSQL("ALTER TABLE items DROP COLUMN title_state")
+            db.execSQL("CREATE TABLE daily_summaries(day TEXT PRIMARY KEY,text TEXT)")
+            db.execSQL("CREATE TABLE daily_chunks(day TEXT,text TEXT)")
+            db.execSQL("CREATE TABLE daily_post_summaries(item_id TEXT,text TEXT)")
+            db.execSQL("INSERT INTO daily_summaries VALUES('2026-10-21','Old overview')")
+            db.version=6
+        }
+        store=BrainStore(context)
+        assertEquals(7,store.readableDatabase.version)
+        assertEquals("legacy",store.get(id)!!.titleState)
+        assertEquals("Existing summary",store.get(id)!!.summary)
+        assertEquals(1,DailyTimeline.titles(store.list()).size)
+        assertTrue(ProcessingQueue.jobs(store).isEmpty())
+        store.readableDatabase.rawQuery("SELECT name FROM sqlite_master WHERE name LIKE 'daily_%'",null).use {assertEquals(0,it.count)}
+    }
+    @Test fun recoveringLegacyPdfPrefersItsSnapshotAndWorksWithoutTheOriginalGrant() {
+        val snapshot=pdf(1)
+        val id=store.add("pdf","Legacy PDF",documentUri="content://unavailable/original")
+        store.update(id,pendingMedia=snapshot.absolutePath,pdfPages=1,summary="Kept summary",status="ready")
+        DocumentStorage.retain(context,store,id)
+        val recovered=store.get(id)!!
+        assertFalse(snapshot.exists());assertEquals("",recovered.pendingMedia)
+        assertEquals("Kept summary",recovered.summary)
+        DocumentStorage.open(context,recovered).use {assertEquals(1,it.renderer.pageCount)}
+        val archive=File(root,"pdf-backup.zip")
+        store.update(id,title="Saved descriptive title",titleState="generated")
+        Backup.export(context,store,Uri.fromFile(archive))
+        store.delete(id);File(recovered.attachment).delete()
+        Backup.import(context,store,Uri.fromFile(archive))
+        val restored=store.get(id)!!
+        assertEquals("generated",restored.titleState)
+        assertEquals("Saved descriptive title",restored.title)
+        DocumentStorage.open(context,restored).use {assertEquals(1,it.renderer.pageCount)}
+    }
+    @Test fun failedTitleRetainsTranslationCheckpointAndPublishesExactlyOnceAfterRetry() {
+        val id=store.add("translation","Pending title")
+        val user=store.addMessage(id,"Source words","translate","en","pending")
+        val job=ProcessingJob(1,id,"conversation",true,user.toString(),"waiting",0,"",0)
+        var translationCalls=0
+        val failing=ConversationProcessor(context,store,{}, {},{it()},{true},createTitle={_,_->error("Title failed")}) {_,_->
+            translationCalls++;"Translated words"
+        }
+        assertTrue(runCatching {failing.process(store.get(id)!!,job)}.isFailure)
+        assertEquals(1,translationCalls)
+        assertTrue(store.messages(id).none {it.role=="assistant"})
+        assertEquals("pending",store.get(id)!!.titleState)
+        val resumed=ConversationProcessor(context,store,{}, {},{it()},{true},createTitle={_,_->"The topic is translated faithfully"}) {_,_->
+            translationCalls++;error("Should use the saved response")
+        }
+        resumed.process(store.get(id)!!,job);resumed.process(store.get(id)!!,job)
+        assertEquals(1,translationCalls)
+        assertEquals(1,store.messages(id).count {it.role=="assistant"})
+        assertEquals("generated",store.get(id)!!.titleState)
+        assertEquals("The topic is translated faithfully",store.get(id)!!.title)
+        assertEquals(id,store.list("faithfully").single().id)
+    }
+
+    @Test fun failedPdfCopyPreservesThePreviousDocumentAndItsDerivedContent() {
+        val original=pdf(1)
+        val id=store.add("pdf","Previous title",attachment=original.absolutePath,body="Previous text")
+        store.update(id,titleState="generated",summary="Previous summary",pdfPages=1,status="ready")
+        val blocker=File(root,"not-a-directory").apply {writeText("blocked")}
+        val failedContext=object:ContextWrapper(context) {override fun getFilesDir()=blocker}
+        val uri=Uri.parse("content://it.supermens.offline.test.documents/relinked")
+        context.grantUriPermission(context.packageName,uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        assertTrue(runCatching {Ingest.relinkPdf(failedContext,store,id,uri)}.isFailure)
+        assertTrue(original.isFile)
+        assertEquals("Previous text",store.get(id)!!.body)
+        assertEquals("Previous summary",store.get(id)!!.summary)
+        assertEquals("generated",store.get(id)!!.titleState)
+        assertTrue(ProcessingQueue.jobs(store).isEmpty())
+    }
+    @Test fun replayingConfirmedPdfReplacementDoesNotReplaceItAgain() {
+        val old=pdf(1)
+        val id=store.add("pdf","Original",attachment=old.absolutePath)
+        val uri=Uri.parse("content://it.supermens.offline.test.documents/relinked")
+        context.grantUriPermission(context.packageName,uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        Ingest.relinkPdf(context,store,id,uri,"confirmed-request")
+        val replacement=store.get(id)!!.attachment
+        Ingest.relinkPdf(context,store,id,uri,"confirmed-request")
+        assertEquals(replacement,store.get(id)!!.attachment)
+        assertTrue(File(replacement).isFile);assertFalse(old.exists())
+    }
+
 }

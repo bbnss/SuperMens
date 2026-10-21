@@ -8,6 +8,8 @@ import java.net.URI
 
 object LocalPrefs {
     private fun prefs(context:Context)=context.getSharedPreferences("local_options",Context.MODE_PRIVATE)
+    fun voiceReplies(context:Context)=prefs(context).getBoolean("voice_replies",false)
+    fun setVoiceReplies(context:Context,value:Boolean) {prefs(context).edit().putBoolean("voice_replies",value).apply()}
     fun chargingOnly(context:Context)=prefs(context).getBoolean("charging_only",false)
     fun setChargingOnly(context:Context,value:Boolean) { prefs(context).edit().putBoolean("charging_only",value).apply() }
     fun invidiousInstance(context:Context)=prefs(context).getString("invidious_instance","").orEmpty()

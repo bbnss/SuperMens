@@ -9,6 +9,7 @@ These notices do not relicense third-party components or model weights. Transiti
 | Jsoup | 1.22.2 | MIT | [License](https://jsoup.org/license) |
 | LiteRT-LM Android | 0.11.0 | Apache-2.0 | [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) |
 | ML Kit bundled text recognition | 16.0.1 | ML Kit Terms of Service | [Terms and privacy](https://developers.google.com/ml-kit/terms) |
+| ML Kit bundled language identification | 17.0.6 | ML Kit Terms of Service | [Terms and privacy](https://developers.google.com/ml-kit/terms) |
 | ML Kit GenAI speech recognition | 1.0.0-alpha1 | ML Kit Terms and GenAI additional terms | [Terms and privacy](https://developers.google.com/ml-kit/terms) |
 | Google Play services base, basement and tasks; ODML Image (ML Kit dependencies) | 18.5.0 / 18.9.0 / 18.2.0 / 1.0.0-beta1 | Google SDK terms, as identified by component metadata | [Google Maven](https://maven.google.com/), [SDK terms](https://developer.android.com/studio/terms) |
 | Google DataTransport, Firebase component/encoder utilities, Gson, Guava and annotations | Resolved by Gradle | Apache-2.0 | [DataTransport and Firebase utilities](https://github.com/firebase/firebase-android-sdk), [Gson](https://github.com/google/gson), [Guava](https://github.com/google/guava), [J2ObjC](https://github.com/google/j2objc) |

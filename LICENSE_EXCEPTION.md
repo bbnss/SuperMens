@@ -7,13 +7,13 @@ version 3 only (GPL-3.0-only), with the following additional permission under
 section 7. The unmodified GPL text is provided in `LICENSE`.
 
 As an additional permission, BBNSS permits you to link or combine the covered
-SuperMens code with Google's ML Kit text-recognition and GenAI
+SuperMens code with Google's ML Kit text-recognition, language-identification and GenAI
 speech-recognition SDKs, including their required runtime dependencies
 supplied by Google (such as Google Play services and ODML Image) and
 Google-supplied recognition models, and to convey
 the resulting work. This permission applies to the Google components used by
-the `com.google.mlkit:text-recognition` and
-`com.google.mlkit:genai-speech-recognition` dependencies, including compatible
+the `com.google.mlkit:text-recognition`,
+`com.google.mlkit:language-id` and `com.google.mlkit:genai-speech-recognition` dependencies, including compatible
 updates of those components.
 
 You must comply with the GNU GPL version 3 for the covered SuperMens code and

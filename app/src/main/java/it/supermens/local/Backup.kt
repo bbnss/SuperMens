@@ -14,14 +14,28 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 object Backup {
-    fun export(context:Context,store:BrainStore,uri:Uri) {
-        val manifest=JSONObject().put("format","supermens-local").put("version",1).put("items",JSONArray())
+    fun export(context:Context,store:BrainStore,uri:Uri) = ProcessingGuard.exclusive {
+        val manifest=JSONObject().put("format","supermens-local").put("version",4).put("items",JSONArray())
+        // Capture any still-readable legacy originals before building the archive.
+        store.list().filter {it.type=="pdf"}.forEach {runCatching {DocumentStorage.retain(context,store,it.id)}}
         val items=store.list()
         context.contentResolver.openOutputStream(uri,"w")!!.use { output-> ZipOutputStream(output).use { zip->
             for(item in items) {
                 val obj=JSONObject().put("id",item.id).put("type",item.type).put("title",item.title).put("summary",item.summary).put("sourceUrl",item.sourceUrl).put("source",item.source).put("body",item.body).put("status",item.status).put("createdAt",item.createdAt).put("updatedAt",item.updatedAt).put("documentUri",item.documentUri).put("pdfPages",item.pdfPages).put("sourceQuality",item.sourceQuality)
                 val seg=JSONArray();store.segments(item.id).forEach { seg.put(JSONObject().put("text",it.text).put("startMs",it.startMs).put("page",it.page).put("source",it.source)) };obj.put("segments",seg)
                 val answers=JSONArray();store.answers(item.id).forEach { answers.put(JSONObject().put("question",it.question).put("answer",it.answer).put("evidence",it.evidence).put("model",it.model).put("createdAt",it.createdAt)) };obj.put("answers",answers)
+                obj.put("targetLanguage",item.targetLanguage).put("titleState",item.titleState)
+                val messages=JSONArray()
+                store.messages(item.id).forEach {m ->
+                    val value=JSONObject().put("id",m.id).put("role",m.role).put("text",m.text).put("mode",m.mode).put("language",m.language).put("state",m.state).put("replyTo",m.replyTo).put("contextLimited",m.contextLimited).put("createdAt",m.createdAt)
+                    if(m.audioPath.isNotBlank()) {
+                        val file=File(m.audioPath);require(file.isFile) {context.uiString(R.string.backup_attachment_missing,item.title)}
+                        val path="files/${item.id}-audio-${m.id}.audio";value.put("audioPath",path)
+                        zip.putNextEntry(ZipEntry(path));file.inputStream().use {it.copyTo(zip)};zip.closeEntry()
+                    }
+                    messages.put(value)
+                }
+                obj.put("messages",messages)
                 if(item.attachment.isNotBlank()) { val file=File(item.attachment);require(file.isFile) { context.uiString(R.string.backup_attachment_missing,item.title) };val path="files/${item.id}.${file.extension.take(8)}";obj.put("attachment",path);obj.put("imageOptimized",item.type=="image" && ImageStorage.isOptimized(file));zip.putNextEntry(ZipEntry(path));file.inputStream().use { it.copyTo(zip) };zip.closeEntry() }
                 if(item.thumbnail==item.attachment && item.attachment.isNotBlank()) obj.put("thumbnail",obj.optString("attachment"))
                 else if(item.thumbnail.isNotBlank()) File(item.thumbnail).takeIf { it.exists() }?.let { file-> val path="previews/${item.id}.${file.extension.take(8)}";obj.put("thumbnail",path);zip.putNextEntry(ZipEntry(path));file.inputStream().use { it.copyTo(zip) };zip.closeEntry() }
@@ -33,7 +47,8 @@ object Backup {
                     val answers=store.answers(item.id)
                     if(answers.isNotEmpty()) {append("## ").append(context.uiString(R.string.questions_answers)).append("\n\n");answers.forEach { a->append("### ").append(a.question).append("\n\n").append(a.answer).append("\n\n")}}
                     val segments=store.segments(item.id)
-                    if(segments.isNotEmpty()) {
+                    if(item.type in setOf("chat","translation")) append("## ").append(context.uiString(R.string.content)).append("\n\n").append(item.body).append("\n\n")
+                    else if(segments.isNotEmpty()) {
                         append("## ").append(context.uiString(R.string.text_transcript)).append("\n\n")
                         segments.forEach { s->
                             val marker=when {s.startMs>=0->"${s.startMs/1000}s";s.page>=0->context.uiString(R.string.page_label,s.page);else->s.source}
@@ -49,7 +64,7 @@ object Backup {
             zip.putNextEntry(ZipEntry("manifest.json"));zip.write(manifest.toString().toByteArray());zip.closeEntry()
         } }
     }
-    fun import(context:Context,store:BrainStore,uri:Uri):Int {
+    fun import(context:Context,store:BrainStore,uri:Uri):Int = ProcessingGuard.exclusive {
         val dir=File(context.cacheDir,"restore-${System.currentTimeMillis()}").apply { mkdirs() }
         try {
             context.contentResolver.openInputStream(uri)!!.use { input-> ZipInputStream(input).use { zip->
@@ -66,7 +81,7 @@ object Backup {
                 }
             } }
             val root=JSONObject(File(dir,"manifest.json").readText())
-            require(root.getString("format")=="supermens-local" && root.getInt("version")==1) { context.uiString(R.string.backup_unsupported) }
+            require(root.getString("format")=="supermens-local" && root.getInt("version") in 1..4) { context.uiString(R.string.backup_unsupported) }
             val arr=root.getJSONArray("items");var imported=0
             val attachments=File(context.filesDir,"attachments").apply { mkdirs() }
             fun extracted(path:String):File { val file=File(dir,path).canonicalFile;require(file.path.startsWith(dir.canonicalPath+File.separator)) { context.uiString(R.string.backup_file_path_invalid) };return file }
@@ -84,19 +99,35 @@ object Backup {
                 }.orEmpty()
                 val thumbnail=o.optString("thumbnail").takeIf { it.isNotBlank() }?.let { path->if(path==o.optString("attachment")) attachment else extracted(path).takeIf { it.isFile }?.let { source->ImageStorage.importFile(context,source,textSensitive=false).absolutePath } }.orEmpty()
                 val reference=o.optString("documentUri").takeIf { it.startsWith("content://") }.orEmpty()
-                val item=BrainItem(id,o.getString("type"),o.getString("title"),o.optString("summary"),o.optString("sourceUrl"),o.optString("source"),o.optString("body"),attachment,thumbnail,o.optString("status","ready"),o.getLong("createdAt"),o.getLong("updatedAt"),reference,o.optInt("pdfPages"),sourceQuality=o.optString("sourceQuality","unknown"))
+                val item=BrainItem(id,o.getString("type"),o.getString("title"),o.optString("summary"),o.optString("sourceUrl"),o.optString("source"),o.optString("body"),attachment,thumbnail,o.optString("status","ready"),o.getLong("createdAt"),o.getLong("updatedAt"),reference,o.optInt("pdfPages"),sourceQuality=o.optString("sourceQuality","unknown"),targetLanguage=o.optString("targetLanguage"),titleState=if(root.getInt("version")<4) "legacy" else o.optString("titleState","pending").also {require(it in setOf("legacy","pending","generated"))})
                 val seg=o.optJSONArray("segments") ?: JSONArray();val segments=(0 until seg.length()).map { n-> val s=seg.getJSONObject(n);Segment(0,id,s.getString("text"),s.optLong("startMs",-1),s.optInt("page",-1),s.optString("source")) }
                 val ans=o.optJSONArray("answers") ?: JSONArray();val answers=(0 until ans.length()).map { n->val a=ans.getJSONObject(n);SavedAnswer(0,id,a.getString("question"),a.getString("answer"),a.optString("evidence"),a.optString("model"),a.optLong("createdAt")) }
                 val old=store.get(id)
-                try { store.restore(item,segments,answers) }
-                catch(e: Exception) { listOf(attachment,thumbnail).filter { it.isNotBlank() }.distinct().forEach { File(it).delete() };throw e }
-                listOfNotNull(old?.attachment,old?.thumbnail).filter { it.isNotBlank() && it!=attachment && it!=thumbnail }.distinct().forEach { path ->
+                val oldAudio=store.messages(id).map {it.audioPath}
+                val restoredAudio=mutableListOf<String>()
+                try {
+                    val saved=o.optJSONArray("messages") ?: JSONArray()
+                    val messages=(0 until saved.length()).map {n ->
+                        val m=saved.getJSONObject(n)
+                        require(m.getString("role") in setOf("user","assistant") && m.getString("mode") in setOf("chat","translate") && m.getString("state") in setOf("draft","pending","transcribing","done")) {context.uiString(R.string.backup_unsupported)}
+                        val audio=m.optString("audioPath").takeIf {it.isNotBlank()}?.let {path ->
+                            val source=extracted(path);require(source.isFile) {context.uiString(R.string.backup_file_missing,path)}
+                            File(attachments,"${UUID.randomUUID()}.audio").also {source.copyTo(it);restoredAudio+=it.absolutePath}.absolutePath
+                        }.orEmpty()
+                        PostMessage(m.getLong("id"),id,m.getString("role"),m.optString("text"),m.getString("mode"),m.optString("language","en"),m.getString("state"),if(m.isNull("replyTo")) null else m.getLong("replyTo"),audio,m.optBoolean("contextLimited"),m.optLong("createdAt"))
+                    }
+                    require(messages.map {it.id}.distinct().size==messages.size) {context.uiString(R.string.backup_unsupported)}
+                    messages.forEach {m ->require(m.replyTo==null || messages.any {it.id==m.replyTo && it.role=="user" && it.id<m.id}) {context.uiString(R.string.backup_unsupported)}}
+                    store.restore(item,segments,answers,messages.sortedBy {it.id})
+                }
+                catch(e: Exception) { (listOf(attachment,thumbnail)+restoredAudio).filter { it.isNotBlank() }.distinct().forEach { File(it).delete() };throw e }
+                (listOfNotNull(old?.attachment,old?.thumbnail)+oldAudio).filter { it.isNotBlank() && it!=attachment && it!=thumbnail }.distinct().forEach { path ->
                     val file=File(path).canonicalFile
                     if(file.path.startsWith(context.filesDir.canonicalPath+File.separator) || file.path.startsWith(context.cacheDir.canonicalPath+File.separator)) file.delete()
                 }
                 imported++
             }
-            return imported
+            return@exclusive imported
         } finally { dir.deleteRecursively() }
     }
 }

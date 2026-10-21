@@ -10,6 +10,7 @@ import android.os.LocaleList
 import java.util.Locale
 
 object AppLanguage {
+    fun deviceTag(context:Context):String = context.getSystemService(LocaleManager::class.java).systemLocales[0]?.toLanguageTag() ?: "en"
     fun code(context: Context): String {
         val manager=context.getSystemService(LocaleManager::class.java)
         // Use the user's first preference before Android resolves available resource languages.

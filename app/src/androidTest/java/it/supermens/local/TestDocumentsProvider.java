@@ -20,10 +20,14 @@ import java.io.IOException;
 public class TestDocumentsProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
     private synchronized File fixture(Uri uri) throws IOException {
-        File file = new File(getContext().getFilesDir(), "test-" + uri.getLastPathSegment() + ("video".equals(uri.getLastPathSegment()) ? ".mp4" : ".pdf"));
+        String kind = uri.getLastPathSegment();
+        File file = new File(getContext().getFilesDir(), "test-" + kind + ("video".equals(kind) ? ".mp4" : "audio".equals(kind) ? ".m4a" : "text".equals(kind) ? ".txt" : ".pdf"));
         if (!file.exists()) {
             try (FileOutputStream output = new FileOutputStream(file)) {
-                if ("video".equals(uri.getLastPathSegment())) {
+                if ("text".equals(kind)) output.write("Testo importato: città 🌍".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                else if ("audio".equals(kind)) {
+                    try (java.io.InputStream input = getContext().getAssets().open("video-audio.mp4")) {input.transferTo(output);}
+                } else if ("video".equals(uri.getLastPathSegment())) {
                     try (java.io.InputStream input = getContext().getAssets().open("video-silent.mp4")) {input.transferTo(output);}
                 } else if ("broken".equals(uri.getLastPathSegment())) output.write("invalid pdf".getBytes());
                 else {
@@ -57,12 +61,13 @@ public class TestDocumentsProvider extends ContentProvider {
             return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
         } catch (IOException error) { throw new java.io.FileNotFoundException(error.toString()); }
     }
-    @Override public String getType(Uri uri) { return "video".equals(uri.getLastPathSegment()) ? "video/mp4" : "application/pdf"; }
+    @Override public String getType(Uri uri) { String kind=uri.getLastPathSegment();return "video".equals(kind) ? "video/mp4" : "audio".equals(kind) ? "audio/mp4" : "text".equals(kind) ? "text/plain" : "application/pdf"; }
     @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) {
         String[] columns = projection != null ? projection : new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE};
         MatrixCursor result = new MatrixCursor(columns);
         Object[] values = new Object[columns.length];
-        for (int index = 0; index < columns.length; index++) values[index] = OpenableColumns.DISPLAY_NAME.equals(columns[index]) ? ("video".equals(uri.getLastPathSegment()) ? "video-silent.mp4" : "document.pdf") : 0L;
+        String kind=uri.getLastPathSegment();
+        for (int index = 0; index < columns.length; index++) values[index] = OpenableColumns.DISPLAY_NAME.equals(columns[index]) ? ("video".equals(kind) ? "video-silent.mp4" : "audio".equals(kind) ? "audio.m4a" : "text".equals(kind) ? "text.txt" : "document.pdf") : 0L;
         result.addRow(values); return result;
     }
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }

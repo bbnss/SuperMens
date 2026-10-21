@@ -5,21 +5,29 @@ package it.supermens.local
 
 /** Text shown or copied must not depend on how many segments the UI has loaded. */
 object PostContent {
+    fun isAddition(segment:Segment)=segment.source in setOf("testo condiviso","manual")
+    fun storedBody(segments:List<Segment>):String {
+        val audio=segments.filter {it.source=="gemma audio"}.sortedBy {it.page}
+        return if(audio.isEmpty()) segments.joinToString("\n") {it.text}
+        else listOf(segments.filter {it.source!="gemma audio"}.joinToString("\n\n") {it.text},audio.fold("") {all,s ->TranscriptMerge.join(all,s.text)}).filter {it.isNotBlank()}.joinToString("\n\n")
+    }
     fun description(segments: List<Segment>): String = segments.filter { it.source == "visione" }
         .joinToString("\n\n") { it.text.trim() }.trim()
 
     fun textSegments(type: String, segments: List<Segment>): List<Segment> = when (type) {
-        "image" -> segments.filter { it.source == "ocr" }
-        "audio", "video" -> segments.filter { it.source == "gemma audio" || it.startMs >= 0 }
+        "image" -> segments.filter { it.source == "ocr" || it.source=="manual" }
+        "audio", "video" -> segments.filter { it.source == "gemma audio" || it.startMs >= 0 || it.source=="manual" }
             .sortedWith(compareBy<Segment> { if(it.startMs >= 0) it.startMs else Long.MAX_VALUE }.thenBy { it.page })
-        "youtube" -> segments.filter { it.source.startsWith("caption") || it.source == "import" || it.startMs >= 0 }
+        "youtube" -> segments.filter { it.source.startsWith("caption") || it.source == "import" || it.startMs >= 0 || it.source=="manual" }
         else -> segments.filter { it.source != "visione" }
     }
 
     fun copyText(item: BrainItem, segments: List<Segment>): String {
+        if(item.type in setOf("chat","translation")) return item.body.trim()
         val text = textSegments(item.type, segments).filter { it.text.isNotBlank() }
         if (item.type in setOf("audio", "video") && text.any { it.source == "gemma audio" }) {
-            return text.fold("") { all, segment -> TranscriptMerge.join(all, segment.text) }
+            val transcript=text.filter {it.source!="manual"}.fold("") { all, segment -> TranscriptMerge.join(all, segment.text) }
+            return listOf(transcript,text.filter {it.source=="manual"}.joinToString("\n\n") {it.text}).filter {it.isNotBlank()}.joinToString("\n\n")
         }
         if (text.isNotEmpty()) return text.joinToString("\n\n") { it.text.trim() }
         return if (item.type == "image" || (segments.isNotEmpty() && item.type in setOf("audio", "video", "youtube"))) "" else item.body.trim()

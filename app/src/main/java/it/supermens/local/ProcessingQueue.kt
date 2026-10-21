@@ -26,12 +26,39 @@ object ProcessingQueue {
         wake(context)
     }
     fun question(context:Context,id:String,text:String) { BrainStore(context).use { add(it,id,"question",true,text) };wake(context) }
-    fun summary(context:Context,id:String) { BrainStore(context).use { it.writableDatabase.delete("summary_chunks","item_id=?",arrayOf(id));add(it,id,"summary",true) };wake(context) }
+    fun summary(context:Context,id:String,manual:Boolean=true) { BrainStore(context).use { it.writableDatabase.delete("summary_chunks","item_id=? AND chunk_key LIKE 'summary-%'",arrayOf(id));add(it,id,"summary",manual) };wake(context) }
+    fun refresh(context:Context,id:String,manual:Boolean=true) = synchronized(mutation) {
+        BrainStore(context).use { store ->
+            val item=store.get(id) ?: return@synchronized
+            val receipts=jobs(store).filter {it.itemId==id && it.kind!="question"}
+            val active=receipts.filter {it.state in setOf("waiting","running")}
+            if(active.isNotEmpty()) {
+                if(manual) store.writableDatabase.execSQL("UPDATE processing_jobs SET manual=1 WHERE item_id=? AND state IN ('waiting','running') AND kind!='question'",arrayOf(id))
+                wake(context)
+            } else if(item.type=="image") {
+                store.update(id,status="pending_ai")
+                add(store,id,"process",manual,"refresh-image")
+                wake(context)
+            } else if(item.status=="ready" && item.body.isNotBlank() && receipts.none {it.kind=="acquire" && it.state=="failed"}) summary(context,id,manual)
+            else enqueue(context,id,manual,enrichOnly=item.type in setOf("chat","translation") ||
+                (item.status !in setOf("waiting_network","source_limited","youtube_no_captions") && !item.status.startsWith("extraction_failed") &&
+                    (item.pdfPages>0 || store.segments(id).any {it.source!="testo condiviso"})))
+        }
+    }
+    fun conversation(context:Context,id:String,messageId:Long,transcribe:Boolean=false) {
+        BrainStore(context).use {add(it,id,if(transcribe) "transcribe" else "conversation",true,messageId.toString())};wake(context)
+    }
+    fun retryConversation(context:Context,id:String) {
+        BrainStore(context).use { store -> jobs(store).filter {it.itemId==id && it.kind in setOf("conversation","transcribe") && it.state=="failed"}.forEach {
+            store.writableDatabase.execSQL("UPDATE processing_jobs SET state='waiting',attempts=0 WHERE id=?",arrayOf(it.id))
+        } };wake(context)
+    }
     fun remove(context:Context,id:String):BrainItem? {
         // Deleting the item cascades to every persistent job. Never wait on native inference.
-        val old=synchronized(mutation) { BrainStore(context).use {it.delete(id)} } ?: return null
+        var audio=listOf<String>()
+        val old=synchronized(mutation) { BrainStore(context).use {audio=it.messages(id).map {m ->m.audioPath};it.delete(id)} } ?: return null
         WorkManager.getInstance(context).cancelUniqueWork("analyze-$id")
-        listOf(old.pendingMedia,old.attachment,old.thumbnail).filter {it.isNotBlank()}.distinct().forEach {java.io.File(it).delete()}
+        (listOf(old.pendingMedia,old.attachment,old.thumbnail)+audio).filter {it.isNotBlank()}.distinct().forEach {java.io.File(it).delete()}
         if(old.documentUri.isNotBlank()) BrainStore(context).use { store ->
             if(store.list().none {it.documentUri==old.documentUri}) runCatching {
                 context.contentResolver.releasePersistableUriPermission(android.net.Uri.parse(old.documentUri),Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -44,7 +71,7 @@ object ProcessingQueue {
         if(store.get(id)==null) return@synchronized
         val existing=jobs(store).firstOrNull { it.itemId==id && it.kind==kind && it.payload==payload && it.state in setOf("waiting","running") }
         if(existing!=null) { if(manual) store.writableDatabase.execSQL("UPDATE processing_jobs SET manual=1 WHERE id=?",arrayOf(existing.id));return@synchronized }
-        store.writableDatabase.execSQL("UPDATE processing_jobs SET state='superseded' WHERE item_id=? AND kind=? AND state='failed'",arrayOf(id,kind))
+        if(kind !in setOf("conversation","transcribe")) store.writableDatabase.execSQL("UPDATE processing_jobs SET state='superseded' WHERE item_id=? AND kind=? AND state='failed'",arrayOf(id,kind))
         store.writableDatabase.insertOrThrow("processing_jobs",null,ContentValues().apply {
             put("item_id",id);put("kind",kind);put("manual",if(manual) 1 else 0);put("payload",payload);put("created_at",System.currentTimeMillis())
         })
@@ -65,7 +92,12 @@ object ProcessingQueue {
             db.setTransactionSuccessful()
         } finally {db.endTransaction()}
     }
-    fun charging(context:Context)=(context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager).isCharging
+    fun charging(context:Context):Boolean {
+        // Adaptive charging / the 80% limit can suspend charging while power is connected.
+        val battery=context.registerReceiver(null,IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        return PowerState.connected(battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED,0) ?: 0,
+            (context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager).isCharging)
+    }
     fun eligible(context:Context,job:ProcessingJob)=job.manual || !LocalPrefs.chargingOnly(context) || charging(context)
     fun canUnload(context:Context,checkBusy:Boolean=true):Boolean = (!checkBusy || !ProcessingGuard.busy) && BrainStore(context).use { store ->
         val jobs=jobs(store)
@@ -92,6 +124,12 @@ object ProcessingQueue {
         WorkManager.getInstance(context).enqueueUniqueWork("supermens-charge-wake",ExistingWorkPolicy.KEEP,OneTimeWorkRequestBuilder<ChargingWakeWorker>().setConstraints(Constraints.Builder().setRequiresCharging(true).build()).build())
     }
     fun reconcile(context:Context,store:BrainStore) {
+            store.list().filter {it.type in setOf("chat","translation")}.forEach {item ->
+                store.messages(item.id).filter {it.state in setOf("pending","transcribing")}.forEach {message ->
+                    val kind=if(message.state=="transcribing") "transcribe" else "conversation"
+                    if(jobs(store).none {it.itemId==item.id && it.kind==kind && it.payload==message.id.toString() && it.state in setOf("waiting","running","failed")}) add(store,item.id,kind,true,message.id.toString())
+                }
+            }
             val snapshot=jobs(store)
             store.list().filter {it.status.startsWith("pending_ai") || it.status.startsWith("processing")}.forEach {item ->
                 val final=snapshot.filter {it.itemId==item.id && it.kind in setOf("process","summary")}.maxByOrNull {it.id}
@@ -105,7 +143,7 @@ object ProcessingQueue {
                 val item=store.get(job.itemId)
                 if(item?.status in setOf("ready","source_limited","youtube_no_captions") && jobs(store).none {it.itemId==job.itemId && it.kind=="acquire" && it.state in setOf("waiting","running","failed")}) complete(store,job)
             }
-            store.list().filter { it.status=="saved" || it.status.startsWith("processing") || it.status.startsWith("pending_ai") }.forEach {
+            store.list().filter { it.type !in setOf("chat","translation") && (it.status in setOf("saved","waiting_charging","waiting_network") || it.status.startsWith("processing") || it.status.startsWith("pending_ai")) }.forEach {
                 if(jobs(store).none { job->job.itemId==it.id && job.state in setOf("waiting","running","failed") }) enqueue(context,it.id,enrichOnly=it.type=="pdf" && it.pdfPages>0 || store.segments(it.id).any { s->s.source!="testo condiviso" })
             }
     }
@@ -118,7 +156,20 @@ object ProcessingQueue {
     }
 }
 class SuperMensApp:Application() {
-    override fun onCreate() { super.onCreate();Thread { LocalModel.state(this);ProcessingQueue.recover(this) }.start() }
+    override fun onCreate() {
+        super.onCreate()
+        // Recover before WorkManager starts draining: a late reset could duplicate a running job.
+        ProcessingQueue.recover(this)
+        RetiredDailyWork.cancel(this)
+        DocumentStorage.scheduleRecovery(this)
+        registerReceiver(object:BroadcastReceiver() {
+            override fun onReceive(context:Context,intent:Intent) {
+                if(ProcessingQueue.charging(context)) {ProcessingQueue.wake(context)}
+                else ProcessingQueue.waitCharging(context)
+            }
+        },IntentFilter().apply {addAction(Intent.ACTION_POWER_CONNECTED);addAction(Intent.ACTION_POWER_DISCONNECTED)},Context.RECEIVER_NOT_EXPORTED)
+        Thread { LocalModel.state(this) }.start()
+    }
 }
 class QueueWakeReceiver:BroadcastReceiver() {
     override fun onReceive(context:Context,intent:Intent) {
@@ -126,7 +177,7 @@ class QueueWakeReceiver:BroadcastReceiver() {
     }
 }
 class ChargingWakeWorker(context:Context,params:WorkerParameters):Worker(context,params) {
-    override fun doWork():Result { ProcessingQueue.wakeProcessing(applicationContext);return Result.success() }
+    override fun doWork():Result { ProcessingQueue.wake(applicationContext);return Result.success() }
 }
 class AcquireWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     override fun doWork():Result = BrainStore(applicationContext).use { store ->
@@ -170,8 +221,13 @@ class ProcessingWorker(context:Context,params:WorkerParameters):Worker(context,p
             attempted.add(job.id)
             val item=store.get(job.itemId) ?: continue
             ProcessingGuard.exclusive {
+                // A PDF replacement can retire a job while it waits for the inference guard.
+                if(ProcessingQueue.jobs(store).none {it.id==job.id}) return@exclusive
                 ProcessingQueue.state(store,job,"running")
-                fun check() { if(isStopped || store.get(item.id)==null || !ProcessingQueue.eligible(applicationContext,job)) throw InterruptedException("checkpoint") }
+                fun check() {
+                    val currentJob=ProcessingQueue.jobs(store).firstOrNull {it.id==job.id}
+                    if(isStopped || store.get(item.id)==null || currentJob==null || !ProcessingQueue.eligible(applicationContext,currentJob)) throw InterruptedException("checkpoint")
+                }
                 try {
                     check()
                     runCatching { setForegroundAsync(ProcessingNotifications.foreground(applicationContext,item)).get() }
@@ -183,17 +239,20 @@ class ProcessingWorker(context:Context,params:WorkerParameters):Worker(context,p
                             store.addAnswer(item.id,job.payload,reply,evidence,LocalAi.modelName(applicationContext))
                         }
                         "summary" -> processor.summarize(item)
-                        else -> processor.process(item)
+                        "conversation","transcribe" -> ConversationProcessor(applicationContext,store,::check,{ProcessingQueue.state(store,job,"running",it)},{publish ->ProcessingQueue.complete(store,job,publish)}).process(item,job)
+                        else -> processor.process(item,refreshImage=job.payload=="refresh-image")
                     }
                     ProcessingQueue.complete(store,job)
                 } catch(e:Exception) {
-                    if(store.get(item.id)==null) return@exclusive
+                    if(store.get(item.id)==null || ProcessingQueue.jobs(store).none {it.id==job.id}) return@exclusive
                     val waitingModel=e is ModelWaiting
                     val paused=e is InterruptedException
                     if(paused && !job.manual && LocalPrefs.chargingOnly(applicationContext)) ProcessingQueue.waitCharging(applicationContext)
-                    val failed=!waitingModel && !paused && job.attempts>=2
-                    ProcessingQueue.state(store,job,if(failed) "failed" else "waiting",if(waitingModel) applicationContext.uiString(R.string.install_model_hint) else if(paused) applicationContext.uiString(R.string.wait_charging) else e.message.orEmpty(),!waitingModel && !paused)
-                    if(job.kind!="question") store.update(item.id,status=if(failed) "processing_failed · ${e.message}" else if(paused) "waiting_charging" else "pending_ai")
+                    val failed=e is TranslationFailed || (!waitingModel && !paused && job.attempts>=2)
+                    val waitingPower=paused && !ProcessingQueue.charging(applicationContext) &&
+                        !ProcessingQueue.eligible(applicationContext,ProcessingQueue.jobs(store).firstOrNull {it.id==job.id} ?: job)
+                    ProcessingQueue.state(store,job,if(failed) "failed" else "waiting",if(waitingModel) applicationContext.uiString(R.string.install_model_hint) else if(waitingPower) applicationContext.uiString(R.string.wait_charging) else if(paused) applicationContext.uiString(R.string.queued) else e.message.orEmpty(),!waitingModel && !paused)
+                    if(job.kind!="question") store.update(item.id,status=if(failed) "processing_failed · ${e.message}" else if(waitingPower) "waiting_charging" else "pending_ai")
                     if(!failed && !paused && !waitingModel) {
                         WorkManager.getInstance(applicationContext).enqueueUniqueWork("supermens-retry",ExistingWorkPolicy.KEEP,OneTimeWorkRequestBuilder<RetryWakeWorker>().setInitialDelay(30,TimeUnit.SECONDS).build())
                     }
