@@ -8,6 +8,12 @@ import java.net.URI
 
 object LocalPrefs {
     private fun prefs(context:Context)=context.getSharedPreferences("local_options",Context.MODE_PRIVATE)
+    fun initialize(context:Context) {
+        val options=prefs(context)
+        if(!options.contains("charging_only")) {
+            options.edit().putBoolean("charging_only",false).apply()
+        }
+    }
     fun voiceReplies(context:Context)=prefs(context).getBoolean("voice_replies",false)
     fun setVoiceReplies(context:Context,value:Boolean) {prefs(context).edit().putBoolean("voice_replies",value).apply()}
     fun chargingOnly(context:Context)=prefs(context).getBoolean("charging_only",false)

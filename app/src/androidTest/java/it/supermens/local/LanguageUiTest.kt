@@ -49,8 +49,8 @@ class LanguageUiTest {
             rule.onNodeWithContentDescription("Settings").performClick()
             waitText("Gemma 4 E2B on your phone")
             rule.onNodeWithText("BBNSS").performScrollTo().assertIsDisplayed()
-            rule.onNodeWithText("Made with").assertIsDisplayed()
-            rule.onNodeWithContentDescription("Claude Code").assertIsDisplayed()
+            rule.onNodeWithText("Made with").assertDoesNotExist()
+            rule.onNodeWithContentDescription("Claude Code").assertDoesNotExist()
             if(context.getString(R.string.repository_url).isBlank()) {
                 rule.onNodeWithText("BBNSS").performClick()
                 rule.onNodeWithText("The repository will be published soon.").assertIsDisplayed()

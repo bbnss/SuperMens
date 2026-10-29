@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name" translatable="false">SuperMens</string>
     <string name="settings">Impostazioni</string>
+    <string name="app_version">Versione %1$s (%2$d)</string>
     <string name="post_detail">Scheda</string>
     <string name="back">Indietro</string>
     <string name="show_last_error">Mostra ultimo errore</string>
@@ -105,7 +105,7 @@
     <string name="model_file_explanation">Il file importato deve essere Gemma 4 E2B nella variante LiteRT-LM di Gallery. APK e modello sono separati.</string>
     <string name="automatic_processing">Elaborazione automatica</string>
     <string name="charging_only">Elabora solo in carica</string>
-    <string name="charging_explanation">Testo, sottotitoli e anteprime online vengono acquisiti subito. Solo OCR e generazione locale automatici attendono la ricarica, anche con app chiusa. Domande e tentativi manuali funzionano a batteria e aspettano il lavoro già in corso. Android può ritardare i lavori; dopo un arresto forzato riapri l’app.</string>
+    <string name="charging_explanation">Per impostazione iniziale, l’elaborazione funziona anche a batteria. Attiva questa opzione per attendere la ricarica prima di OCR e IA locale automatici. Testo, sottotitoli e anteprime online vengono acquisiti subito. Domande e tentativi manuali restano disponibili a batteria. Android può ritardare i lavori in background; dopo un arresto forzato riapri l’app.</string>
     <string name="youtube_captions">Sottotitoli YouTube</string>
     <string name="invidious_label">Istanza Invidious HTTPS (facoltativa)</string>
     <string name="invidious_disabled">Fallback Invidious disattivato</string>
@@ -114,7 +114,7 @@
     <string name="save_instance">Salva istanza</string>
     <string name="invidious_explanation">Sottotitoli YouTube: player iOS/Android. Se abiliti Invidious come ultimo tentativo, l’istanza scelta riceve l’ID del video e può vedere l’IP del telefono.</string>
     <string name="separate_archive">Archivio separato</string>
-    <string name="archive_explanation">Il tuo archivio è conservato sul dispositivo. Puoi esportarlo e ripristinarlo oppure trasferirlo su un altro telefono.</string>
+    <string name="archive_explanation">Il tuo archivio è conservato sul dispositivo. Puoi esportarlo e ripristinarlo oppure trasferirlo su un altro telefono. Il backup ZIP non è cifrato; il limite è 2 GB non compressi e 9.999 file. Serve spazio temporaneo sul telefono.</string>
     <string name="export_zip">Esporta ZIP</string>
     <string name="import_zip">Importa ZIP</string>
     <string name="ocr_explanation">OCR locale: ML Kit Text Recognition v2, scrittura latina. Il modello OCR è incluso e funziona senza Internet dal primo utilizzo.</string>
@@ -289,7 +289,7 @@
     <string name="show_less">Mostra meno</string>
     <string name="back_to_top">Torna in cima</string>
     <string name="model_banner_title">Attiva l’intelligenza locale</string>
-    <string name="model_banner_hint">Scarica Gemma 4 E2B (2,58 GB) per riassumere e analizzare i contenuti su questo telefono.</string>
+    <string name="model_banner_hint">Scarica Gemma 4 E2B (2,58 GB) per la IA locale. Consigliati 6–8 GB liberi. Puoi salvare, leggere e cercare anche senza modello.</string>
     <string name="later">Più tardi</string>
     <string name="text_entry_hint">Scrivi o incolla un testo o un link, poi salvalo.</string>
     <string name="paste_text">Incolla</string>
@@ -347,4 +347,40 @@
     <string name="pdf_replace_confirm">Sostituire la copia salvata con «%1$s»? Il PDF attuale verrà perso. La sostituzione avverrà solo dopo aver verificato il nuovo file.</string>
     <string name="pdf_replace_action">Sostituisci PDF</string>
     <string name="pdf_copy_missing">Copia PDF non disponibile. Ricollega il file per conservarlo nell’app.</string>
+    <string name="model_storage_unavailable">Lo spazio per il modello non è accessibile. Controlla la memoria e riprova.</string>
+    <string name="model_storage_low">Spazio insufficiente. Servono 2,58 GB per il modello e 512 MiB di margine. Importando un aggiornamento si conserva anche il modello precedente fino alla verifica.</string>
+    <string name="model_download_retry">Download non riuscito. Controlla connessione e spazio disponibile, poi riprova.</string>
+    <string name="model_delete_failed">Non è stato possibile eliminare il modello.</string>
+    <string name="model_remove">Elimina modello</string>
+    <string name="model_remove_confirm">Eliminare il modello e il suo download? Il tuo archivio rimane sul telefono. Per usare le funzioni IA sarà necessario scaricare di nuovo il modello.</string>
+    <string name="model_removed">Modello eliminato. Archivio conservato.</string>
+    <string name="model_storage_status">Modello: %1$s · Spazio libero: %2$s</string>
+    <string name="model_compatibility">Beta: prestazioni del dispositivo non certificate. La presenza di una NPU non garantisce il supporto. Usa Verifica modello prima di elaborare file grandi.</string>
+    <string name="backend_status">Ultimo backend verificato: %1$s</string>
+    <string name="backend_cpu_warning">È attivo il ripiego sulla CPU. Le elaborazioni possono essere lente e consumare più batteria. Le descrizioni delle immagini non sono disponibili.</string>
+    <string name="backend_gpu_text_warning">È attiva la modalità GPU per il testo. Le descrizioni delle immagini non sono disponibili in questa configurazione.</string>
+    <string name="diagnostics">Diagnostica dispositivo</string>
+    <string name="diagnostics_explanation">Controlla i dati tecnici prima di condividerli. Non includono documenti, domande, trascrizioni, URL o identificatori persistenti. Il successo del test del modello non certifica le prestazioni.</string>
+    <string name="share_diagnostics">Condividi diagnostica</string>
+    <string name="wait_cooling">In pausa: attesa del raffreddamento del telefono</string>
+    <string name="foreground_unavailable">Android non ha potuto avviare una elaborazione visibile in background. Riapri la app e riprova.</string>
+    <string name="inference_stopped">Interrotto su tua richiesta. Riprova per riprendere dal checkpoint.</string>
+    <string name="stop_processing">Interrompi elaborazione</string>
+    <string name="ai_disclosure">Stai interagendo con una IA eseguita su questo telefono. I testi generati possono essere errati. Verificali sulle fonti.</string>
+    <string name="ai_generated">Contenuto generato da IA</string>
+    <string name="ai_preview">Risposta IA in corso — non ancora salvata</string>
+    <string name="report_response">Segnala risposta IA</string>
+    <string name="report_explanation">Verrà inviata allo sviluppatore solo la risposta mostrata qui sotto. Rimuovi i passaggi privati. La domanda e il tuo archivio non vengono inviati. I dettagli tecnici sono facoltativi.</string>
+    <string name="report_not_configured">Le segnalazioni non sono collegate in questa beta. Non verrà inviato nulla. Il servizio deve essere attivato prima del rilascio pubblico.</string>
+    <string name="report_child">Tutela dei minori</string>
+    <string name="report_harmful">Contenuto dannoso o offensivo</string>
+    <string name="report_deceptive">Contenuto ingannevole</string>
+    <string name="report_other">Altro problema</string>
+    <string name="report_preview">Risposta da inviare (modificabile, fino a 16 KB)</string>
+    <string name="report_diagnostics">Includi diagnostica tecnica</string>
+    <string name="report_consent">Acconsento a inviare il contenuto visualizzato allo sviluppatore per la verifica.</string>
+    <string name="report_send_failed">Invio non riuscito. Controlla la connessione e riprova.</string>
+    <string name="report_sent">Segnalazione ricevuta. Grazie.</string>
+    <string name="ai_refusal">Non posso aiutare con questa richiesta. Posso aiutarti con un argomento sicuro o con i tuoi documenti.</string>
+    <string name="privacy_contact">Contatto privacy privato</string>
 </resources>

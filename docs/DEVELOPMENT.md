@@ -1,3 +1,7 @@
+## Current beta preparation: 0.3.0-beta3
+
+See [PLAY_BETA.md](PLAY_BETA.md) for current behavior, configuration, release gates and the physical-device protocol. The notes below describe earlier releases and historical validation. In particular, automatic charging-only processing defaults off for new installs, GPU text-only is attempted before CPU, inference uses cooperative streaming cancellation, and active branding is the walnut/brain vector. Saved charging preferences are preserved on updates.
+
 # SuperMens developer notes
 
 ## Android project
@@ -7,7 +11,7 @@ This project contains the local Android app only, with no backend module.
 - Application ID: `it.supermens.offline`.
 - Minimum SDK: 35 (Android 15); compile and target SDK: 36.
 - Packaged architecture: `arm64-v8a`.
-- Release: `0.2.8`, version code `10`.
+- Current source: `0.3.0-beta3`, version code `13`.
 - Toolchain: JDK 17 or later, Android SDK 36 and the included Gradle wrapper.
 
 Configure `JAVA_HOME` and `ANDROID_HOME` for your machine, or use Android Studio. Never commit `local.properties`.
@@ -19,25 +23,34 @@ Configure `JAVA_HOME` and `ANDROID_HOME` for your machine, or use Android Studio
 ```
 
 Debug output: `app/build/outputs/apk/debug/app-debug.apk`.
-Signed release output: `app/build/outputs/apk/release/app-release.apk`.
+Unsigned release output: `app/build/outputs/apk/release/app-release-unsigned.apk`.
+Private beta output: `app/build/outputs/apk/beta/app-beta.apk`.
 Installable copies in `apk/` are ignored by Git and intended as release assets.
 
 ## Release signing
 
-| Environment variable | Meaning |
-| --- | --- |
-| `SUPERMENS_KEYSTORE_PATH` | Absolute path to a private keystore outside the repository. |
-| `SUPERMENS_KEYSTORE_PASSWORD` | Keystore password. |
-| `SUPERMENS_KEY_ALIAS` | Signing key alias. |
-| `SUPERMENS_KEY_PASSWORD` | Signing key password. |
-
-Supply the variables from your local secrets configuration, then run:
+Compile without production keys, passwords or Play credentials:
 
 ```sh
-./gradlew :app:assembleRelease --no-daemon --no-configuration-cache
+./gradlew :app:assembleRelease :app:bundleRelease --no-daemon
 ```
 
-Missing credentials fail release signing; there is no debug-signature fallback. Back up the keystore and credentials securely and preserve the signing identity for future updates. Never commit signing material, secrets files or Gradle caches.
+Both release packages remain unsigned. The maintainer signs separately in their own terminal using hidden password input after reviewing the artifact. The AAB upload identity and official APK app-signing identity are distinct roles; verify the expected certificate for the destination. Never inject production signing material into Gradle or CI. The previously used E4:75 certificate is retired; do not reuse it.
+
+For private beta testing, run `./gradlew :app:assembleBeta`. The `beta` build type retains release R8/resource optimization, uses the standard Android debug certificate and installs as **SuperMens Beta** (`it.supermens.offline.beta`). No production key or manual signing is needed. Its archive and model are separate from the regular app. Export/import a ZIP to copy an archive; import the original model file or download weights again. Do not uninstall the regular app to install this beta. Official builds never fall back to the debug certificate.
+
+### Native callback regression check
+
+LiteRT-LM 0.11.0 obtains streaming callback methods through JNI by their literal names and signatures. R8 cannot see those calls. Version 0.3.0-beta1 removed/renamed `onMessage(String)`, `onDone()` and `onError(int, String)` and merged the callback implementation into another class, causing a native SIGABRT during asynchronous inference. Debug-only tests did not expose the release optimization failure.
+
+The ProGuard rules now retain both JNI callback contracts and their implementations. Check the actual optimized DEX after every release or beta build:
+
+```sh
+python3 tools/verify_native_callbacks.py app/build/outputs/apk/beta/app-beta.apk \
+  --dexdump "$ANDROID_HOME/build-tools/36.0.0/dexdump"
+```
+
+Repeat with the unsigned release APK before official signing. This check fails on the original beta1 APK and passes on the fixed artifacts. It verifies the native linkage contract without requiring weights; real-device inference remains a separate check.
 
 Migrating a debug installation requires exporting the archive, uninstalling, installing the release APK and restoring the archive. The model must be downloaded or imported again; signing material is never part of app backups.
 

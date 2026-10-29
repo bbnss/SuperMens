@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Uso: tools/adb_profile.sh [--name NOME] [--duration SECONDI]
+Uso: tools/adb_profile.sh [--name NOME] [--duration SECONDI] [--package PACKAGE]
 Campiona ogni 5 secondi fino a Ctrl+C o alla durata richiesta.
 Produce un CSV in tools/profiles/ e un riepilogo sul terminale.
 EOF
@@ -11,22 +11,24 @@ EOF
 
 trial="prova"
 duration=0
+package="it.supermens.offline"
 while (($#)); do
   case "$1" in
     --name) [[ $# -ge 2 ]] || { usage; exit 2; }; trial="$2"; shift 2 ;;
     --duration) [[ $# -ge 2 ]] || { usage; exit 2; }; duration="$2"; shift 2 ;;
+    --package) [[ $# -ge 2 ]] || { usage; exit 2; }; package="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
 done
 [[ "$duration" =~ ^[0-9]+$ ]] || { echo "Durata non valida" >&2; exit 2; }
+[[ "$package" =~ ^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$ ]] || { echo "Package non valido" >&2; exit 2; }
 trial="$(printf '%s' "$trial" | tr -cs 'A-Za-z0-9_-' '_' | cut -c1-50)"
 command -v adb >/dev/null || { echo "adb non trovato" >&2; exit 1; }
 mapfile_devices="$(adb devices | awk 'NR>1 && $2=="device" {print $1}')"
 device_count="$(printf '%s\n' "$mapfile_devices" | awk 'NF {n++} END {print n+0}')"
 [[ "$device_count" == 1 ]] || { echo "Collega esattamente un dispositivo ADB autorizzato (trovati: $device_count)" >&2; exit 1; }
 serial="$mapfile_devices"
-package="it.supermens.offline"
 output_dir="$(cd "$(dirname "$0")" && pwd)/profiles"
 mkdir -p "$output_dir"
 csv="$output_dir/${trial}-$(date -u +%Y%m%dT%H%M%SZ).csv"

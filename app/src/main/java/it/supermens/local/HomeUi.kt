@@ -4,6 +4,11 @@
 package it.supermens.local
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,9 +39,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import android.graphics.BitmapFactory
 
 internal val appBackground = Color(0xFF10151D)
@@ -52,6 +62,22 @@ internal val appPanel = Color(0xFF1C2531)
 internal val appAccent = Color(0xFF83C9F4)
 internal val appMuted = Color(0xFFA7B5C7)
 internal val appAccentSurface = Color(0xFF233E53)
+
+@Composable internal fun HomeModelStatus(loaded: Boolean) {
+    val context=LocalContext.current
+    val pulse=if(loaded) {
+        val transition=rememberInfiniteTransition(label="model-in-ram")
+        val scale by transition.animateFloat(1f,1.12f,infiniteRepeatable(tween(1100),RepeatMode.Reverse),label="model-pulse")
+        scale
+    } else 1f
+    Image(
+        painterResource(R.drawable.ic_brain_status),
+        context.uiString(if(loaded) R.string.model_in_ram else R.string.model_not_in_ram),
+        Modifier.padding(end=10.dp).size(30.dp).testTag("home-model-status")
+            .graphicsLayer(scaleX=pulse,scaleY=pulse),
+        colorFilter=if(loaded) null else ColorFilter.colorMatrix(ColorMatrix().apply {setToSaturation(0f)})
+    )
+}
 
 @Composable internal fun UiIcon(resource: Int, description: String? = null, modifier: Modifier = Modifier.size(22.dp), tint: Color = appAccent) {
     Icon(painterResource(resource), description, modifier, tint = tint)
@@ -88,16 +114,23 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
     dictating: Boolean, dictationStatus: String, savingPhoto: Boolean, onActivities: ()->Unit, onStop: ()->Unit,
     onOpen: (BrainItem)->Unit, onNote: ()->Unit, onRecord: ()->Unit, onDictate: ()->Unit,
     onFile: ()->Unit, onCamera: ()->Unit, onPaste: ()->Unit, modelBanner: @Composable ()->Unit = {},onTranslation:()->Unit={},onChat:()->Unit={},
-    onRefreshPost:(BrainItem)->Unit={}, gridState:LazyGridState=rememberLazyGridState(),
+    gridState:LazyGridState=rememberLazyGridState(),
     expandedDays:List<String> = emptyList(), onExpandedDays:(List<String>)->Unit={},
-    anchorKey:String?=null, anchorOffset:Int=0, onPosition:(String?,Int)->Unit={_,_->}
+    anchorKey:String?=null, anchorOffset:Int=0, onPosition:(String?,Int)->Unit={_,_->},
+    focusPostId:String?=null, onFocusPostScrolled:()->Unit={}
 ) {
     val context=LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val keyboard=LocalSoftwareKeyboardController.current
+    val keyboardVisible=WindowInsets.ime.getBottom(LocalDensity.current)>0
     var restored by remember { mutableStateOf(false) }
-    LaunchedEffect(items,expandedDays) {
-        if(!restored && items.isNotEmpty()) {
+    var selection by remember {mutableStateOf(query to filter)}
+    LaunchedEffect(items,expandedDays,filter,query,focusPostId) {
+        if(selection!=(query to filter)) {
+            selection=query to filter
+            gridState.scrollToItem(0)
+        }
+        if((!restored || focusPostId!=null) && items.isNotEmpty()) {
             val keys=if(filter=="all") buildList {
                 DailyTimeline.groups(items).forEach { (day,posts) ->
                     add("day:${day.value}")
@@ -105,9 +138,22 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                     addAll(posts.map {it.id})
                 }
             } else items.map {it.id}
-            val index=keys.indexOf(anchorKey)
-            if(index>=0) gridState.scrollToItem(index,anchorOffset)
-            restored=true
+            // An incoming share takes priority over the saved browsing position.
+            // Wait for its asynchronously refreshed row before acknowledging the request.
+            val index=keys.indexOf(focusPostId ?: anchorKey)
+            if(focusPostId==null || index>=0) {
+                if(index>=0) gridState.scrollToItem(index,if(focusPostId==null) anchorOffset else 0)
+                restored=true
+                if(focusPostId!=null) {
+                    snapshotFlow {
+                        val layout=gridState.layoutInfo
+                        layout.viewportSize.height>0 && layout.visibleItemsInfo.any {
+                            it.key==focusPostId && it.offset.y<layout.viewportEndOffset && it.offset.y+it.size.height>layout.viewportStartOffset
+                        }
+                    }.first {it}
+                    onFocusPostScrolled()
+                }
+            }
         }
     }
     LaunchedEffect(restored) {
@@ -123,7 +169,8 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                 }
             }
         }
-        modelBanner()
+        // The download prompt must not consume the results viewport above the IME.
+        if(!keyboardVisible) modelBanner()
         ActivityStrip(entries,recording,dictating,dictationStatus,savingPhoto,onActivities,onStop)
         if(query.isNotBlank() || filter!="all") Text(context.uiString(R.string.result_count,items.size,total),Modifier.padding(start=20.dp,top=6.dp),color=appMuted,fontSize=12.sp)
         if(items.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center) {
@@ -151,9 +198,9 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
                             }
                         }
                     }
-                    items(posts,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty(),{onRefreshPost(item)}) { onOpen(item) } }
+                    items(posts,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty()) { onOpen(item) } }
                 }
-            } else items(items,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty(),{onRefreshPost(item)}) { onOpen(item) } }
+            } else items(items,key={it.id}) { item -> PostCard(item,previews[item.id].orEmpty()) { onOpen(item) } }
         }
         Surface(color=appBackground,elevation=8.dp) {
             Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -192,24 +239,19 @@ internal data class ActivityEntry(val item: BrainItem, val text: String, val run
     }
 }
 
-@Composable private fun PostCard(item: BrainItem, preview: String, onRefresh:()->Unit, onClick: ()->Unit) {
+@Composable private fun PostCard(item: BrainItem, preview: String, onClick: ()->Unit) {
     val context=LocalContext.current
     val visual=item.type !in setOf("note","audio")
     Surface(modifier=Modifier.fillMaxWidth().heightIn(min=if(visual) 236.dp else 194.dp).clickable(onClick=onClick),color=appPanel,shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,Color.White.copy(alpha=.045f))) {
-        Box {
         Column {
             if(visual) PostPreview(item,Modifier.fillMaxWidth().height(108.dp))
-            Row(Modifier.padding(start=14.dp,end=if(visual) 14.dp else 48.dp,top=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(start=14.dp,end=14.dp,top=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 UiIcon(typeIcon(item.type),modifier=Modifier.size(16.dp),tint=typeColor(item.type))
                 Text(typeLabel(context,item.type),color=typeColor(item.type),fontSize=11.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
             }
             Text(item.title,Modifier.padding(start=14.dp,end=14.dp,top=7.dp),fontWeight=FontWeight.SemiBold,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
             val status=if(item.status.startsWith("processing") || PostContent.failed(item)) PostContent.stage(item,AppLanguage.code(context)) else preview.ifBlank { if(item.status.startsWith("pending_ai") || item.status=="saved") PostContent.stage(item,AppLanguage.code(context)) else item.source }
             Text(status,Modifier.padding(start=14.dp,end=14.dp,top=6.dp,bottom=12.dp),color=appMuted,fontSize=12.sp,maxLines=if(visual) 2 else 4,overflow=TextOverflow.Ellipsis)
-        }
-        IconButton(onClick=onRefresh,modifier=Modifier.align(Alignment.TopEnd).testTag("post-refresh:${item.id}").background(appPanel.copy(alpha=.85f),RoundedCornerShape(bottomStart=16.dp))) {
-            UiIcon(R.drawable.ui_refresh,context.uiString(R.string.refresh_post))
-        }
         }
     }
 }

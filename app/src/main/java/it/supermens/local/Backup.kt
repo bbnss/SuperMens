@@ -12,14 +12,28 @@ import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import java.io.OutputStream
+
+/** Counts uncompressed bytes, exactly like restore, including manifest and Markdown. */
+internal class BackupZipStream(output:OutputStream,private val space:()->Long={Long.MAX_VALUE}):ZipOutputStream(output) {
+    private val budget=ArchiveBudget()
+    override fun putNextEntry(entry:ZipEntry) {budget.entry();super.putNextEntry(entry)}
+    override fun write(bytes:ByteArray,offset:Int,length:Int) {
+        require(space()>=BetaPolicy.storageReserve+length) {"Not enough temporary backup space"}
+        budget.add(length.toLong());super.write(bytes,offset,length)
+    }
+    override fun write(value:Int) {write(byteArrayOf(value.toByte()),0,1)}
+}
 
 object Backup {
     fun export(context:Context,store:BrainStore,uri:Uri) = ProcessingGuard.exclusive {
-        val manifest=JSONObject().put("format","supermens-local").put("version",4).put("items",JSONArray())
+        val manifest=JSONObject().put("format","supermens-local").put("version",4).put("ai_model",LocalModel.label).put("items",JSONArray())
         // Capture any still-readable legacy originals before building the archive.
         store.list().filter {it.type=="pdf"}.forEach {runCatching {DocumentStorage.retain(context,store,it.id)}}
         val items=store.list()
-        context.contentResolver.openOutputStream(uri,"w")!!.use { output-> ZipOutputStream(output).use { zip->
+        val staged=File.createTempFile("backup-", ".zip",context.cacheDir)
+        try {
+        staged.outputStream().use { output-> BackupZipStream(output) {android.os.StatFs(context.cacheDir.absolutePath).availableBytes}.use { zip->
             for(item in items) {
                 val obj=JSONObject().put("id",item.id).put("type",item.type).put("title",item.title).put("summary",item.summary).put("sourceUrl",item.sourceUrl).put("source",item.source).put("body",item.body).put("status",item.status).put("createdAt",item.createdAt).put("updatedAt",item.updatedAt).put("documentUri",item.documentUri).put("pdfPages",item.pdfPages).put("sourceQuality",item.sourceQuality)
                 val seg=JSONArray();store.segments(item.id).forEach { seg.put(JSONObject().put("text",it.text).put("startMs",it.startMs).put("page",it.page).put("source",it.source)) };obj.put("segments",seg)
@@ -40,7 +54,7 @@ object Backup {
                 if(item.thumbnail==item.attachment && item.attachment.isNotBlank()) obj.put("thumbnail",obj.optString("attachment"))
                 else if(item.thumbnail.isNotBlank()) File(item.thumbnail).takeIf { it.exists() }?.let { file-> val path="previews/${item.id}.${file.extension.take(8)}";obj.put("thumbnail",path);zip.putNextEntry(ZipEntry(path));file.inputStream().use { it.copyTo(zip) };zip.closeEntry() }
                 val markdown=buildString {
-                    append("---\nid: \"").append(item.id).append("\"\ntype: \"").append(item.type).append("\"\nsource: ").append(JSONObject.quote(item.sourceUrl)).append("\n---\n\n")
+                    append("---\nai_model: Gemma 4 E2B\nid: \"").append(item.id).append("\"\ntype: \"").append(item.type).append("\"\nsource: ").append(JSONObject.quote(item.sourceUrl)).append("\n---\n\n")
                     append("# ").append(item.title.replace('\n',' ')).append("\n\n")
                     if(item.sourceUrl.isNotBlank()) append("[").append(context.uiString(R.string.original_source)).append("](").append(item.sourceUrl).append(")\n\n")
                     if(item.summary.isNotBlank()) append("## ").append(context.uiString(R.string.summary)).append("\n\n").append(item.summary).append("\n\n")
@@ -63,19 +77,22 @@ object Backup {
             }
             zip.putNextEntry(ZipEntry("manifest.json"));zip.write(manifest.toString().toByteArray());zip.closeEntry()
         } }
+        // Publish only a complete archive that our importer can restore.
+        context.contentResolver.openOutputStream(uri,"wt")!!.use {output ->staged.inputStream().use {it.copyTo(output)}}
+        } finally {staged.delete()}
     }
     fun import(context:Context,store:BrainStore,uri:Uri):Int = ProcessingGuard.exclusive {
         val dir=File(context.cacheDir,"restore-${System.currentTimeMillis()}").apply { mkdirs() }
         try {
             context.contentResolver.openInputStream(uri)!!.use { input-> ZipInputStream(input).use { zip->
-                var count=0; var totalBytes=0L; var entry=zip.nextEntry
+                val budget=ArchiveBudget();var entry=zip.nextEntry
                 while(entry!=null) {
                     val name=entry.name
-                    require(++count<10000) { context.uiString(R.string.backup_too_large) }
+                    budget.entry()
                     require(!name.startsWith("/") && !name.split('/').contains("..")) { context.uiString(R.string.backup_invalid_path) }
                     if(!entry.isDirectory) { val target=File(dir,name);target.parentFile?.mkdirs();target.outputStream().use { output->
                         val buffer=ByteArray(65536)
-                        while(true) { val read=zip.read(buffer);if(read<0) break;totalBytes+=read;require(totalBytes<=2_000_000_000L) { context.uiString(R.string.backup_over_limit) };output.write(buffer,0,read) }
+                        while(true) { val read=zip.read(buffer);if(read<0) break;budget.add(read.toLong());output.write(buffer,0,read) }
                     } }
                     zip.closeEntry();entry=zip.nextEntry
                 }

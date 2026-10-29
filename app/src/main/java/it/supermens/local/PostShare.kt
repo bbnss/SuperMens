@@ -16,6 +16,7 @@ import java.util.UUID
 object PostShare {
     fun text(context:Context,item:BrainItem,segments:List<Segment>,answers:List<SavedAnswer>):String = buildString {
         append(item.title);append("\n\n")
+        if(item.summary.isNotBlank() || item.type in setOf("image","chat","translation") || answers.isNotEmpty()) append(context.uiString(R.string.ai_generated)+"\n\n")
         if(item.sourceUrl.isNotBlank()) append(item.sourceUrl+"\n\n")
         if(item.documentUri.isNotBlank()) append(context.uiString(R.string.original_reference)+": "+item.documentUri+"\n\n")
         val summary=if(item.type=="image") PostContent.description(segments) else item.summary

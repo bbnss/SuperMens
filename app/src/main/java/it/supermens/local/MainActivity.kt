@@ -279,12 +279,16 @@ class MainActivity:ComponentActivity() {
 
 @Composable private fun App(activity:MainActivity) {
     val context=LocalContext.current;val store=remember { BrainStore(context) };val scope=rememberCoroutineScope()
+    val homeFocusManager=LocalFocusManager.current
+    val homeKeyboard=LocalSoftwareKeyboardController.current
     var current by rememberSaveable { mutableStateOf<String?>(null) };var screen by rememberSaveable { mutableStateOf("home") };var refresh by remember { mutableIntStateOf(0) };var message by remember { mutableStateOf("") }
     var conversationType by rememberSaveable {mutableStateOf("chat")}
     val homeGridState=rememberLazyGridState()
     var expandedDays by rememberSaveable {mutableStateOf(arrayListOf<String>())}
     var homeAnchor by rememberSaveable {mutableStateOf<String?>(null)}
     var homeOffset by rememberSaveable {mutableIntStateOf(0)}
+    var focusHomePost by rememberSaveable {mutableStateOf<String?>(null)}
+    val modelLoaded by LocalAi.loaded.collectAsState()
     fun rememberHomePosition() {
         val first=homeGridState.layoutInfo.visibleItemsInfo.firstOrNull {it.index==homeGridState.firstVisibleItemIndex}
         homeAnchor=first?.key as? String
@@ -309,6 +313,7 @@ class MainActivity:ComponentActivity() {
             running!=null -> ActivityEntry(item,running.progress.ifBlank {if(running.kind=="question") context.uiString(R.string.queued) else PostContent.stage(item,AppLanguage.code(context))},running=true)
             waiting!=null -> ActivityEntry(item,when {
                 waiting.kind=="acquire" -> context.uiString(R.string.acquiring_source)
+                DeviceHealth.paused -> context.uiString(R.string.wait_cooling)
                 !ProcessingQueue.eligible(context,waiting) -> context.uiString(R.string.wait_charging)
                 !LocalModel.ready(context) -> context.uiString(R.string.install_model_hint)
                 else -> context.uiString(R.string.queue_position,queuePositions[waiting.id] ?: 1)
@@ -442,7 +447,12 @@ class MainActivity:ComponentActivity() {
         if(shares.isNotEmpty()) scope.launch {
             for(intent in shares) {
                 runCatching {withContext(Dispatchers.IO){Ingest.once(store,intent.getStringExtra("supermens_request_id")!!) {Ingest.intake(context,store,intent)}}}
-                    .onSuccess {ids ->if(ids.isNotEmpty()) {refresh++;screen="home";current=ids.first();message=context.uiString(R.string.content_saved)}}
+                    .onSuccess {ids ->if(ids.isNotEmpty()) {
+                        homeFocusManager.clearFocus();homeKeyboard?.hide()
+                        query="";filter="all"
+                        focusHomePost=ids.last();homeAnchor=ids.last();homeOffset=0
+                        refresh++;screen="home";current=null;message=context.uiString(R.string.content_saved)
+                    }}
                     .onFailure {if(it is CancellationException) throw it;reportError(it.message.orEmpty())}
                 activity.acknowledgeShare(intent.getStringExtra("supermens_request_id")!!)
             }
@@ -456,6 +466,7 @@ class MainActivity:ComponentActivity() {
         Scaffold(modifier=Modifier.statusBarsPadding().navigationBarsPadding(),snackbarHost={SnackbarHost(snackbar,Modifier.imePadding().padding(bottom=if(screen=="home" || screen=="detail") 84.dp else 12.dp))},topBar={
             Row(Modifier.fillMaxWidth().height(56.dp).background(bg).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
                 if(screen=="home") {
+                    HomeModelStatus(modelLoaded)
                     Text(context.uiString(R.string.post_count,archive.size),Modifier.weight(1f),fontSize=20.sp,fontWeight=FontWeight.SemiBold)
                     if(lastError.isNotBlank()) IconButton(onClick={showActivities=true}) { UiIcon(R.drawable.ui_warning,context.uiString(R.string.show_last_error),tint=Color(0xFFFFB5A5)) }
                     IconButton(onClick={rememberHomePosition();screen="settings"}) { UiIcon(R.drawable.ui_settings,context.uiString(R.string.settings)) }
@@ -488,7 +499,8 @@ class MainActivity:ComponentActivity() {
                             } else message=context.uiString(R.string.clipboard_empty)
                         }, modelBanner={ModelBanner(modelBannerDismissed,{modelBannerDismissed=true},::reportError)},
                         onTranslation={rememberHomePosition();current=null;conversationType="translation";screen="conversation"},onChat={rememberHomePosition();current=null;conversationType="chat";screen="conversation"},
-                        onRefreshPost=::refreshPost,gridState=homeGridState,expandedDays=expandedDays,onExpandedDays={expandedDays=ArrayList(it)},anchorKey=homeAnchor,anchorOffset=homeOffset,onPosition={key,offset ->homeAnchor=key;homeOffset=offset})
+                        gridState=homeGridState,expandedDays=expandedDays,onExpandedDays={expandedDays=ArrayList(it)},anchorKey=homeAnchor,anchorOffset=homeOffset,onPosition={key,offset ->homeAnchor=key;homeOffset=offset},
+                        focusPostId=focusHomePost,onFocusPostScrolled={focusHomePost=null})
 
                     "detail"-> current?.let { id->Detail(context,store,id,refresh,{refresh++},{message=it},{reportError(it)},{transcriptPicker.launch(arrayOf("text/*","application/x-subrip"))},{pdfRelinkWarning=id},{relinkTarget=id;videoPicker.launch(arrayOf("video/*"))},{screen="home";current=null;refresh++}) }
                     "settings"->SettingsScreen({message=it},{reportError(it)},{exportPicker.launch("supermens-locale-${System.currentTimeMillis()}.zip")},{importPicker.launch(arrayOf("application/zip"))},{modelPicker.launch(arrayOf("application/octet-stream","*/*"))})
@@ -661,6 +673,9 @@ class MainActivity:ComponentActivity() {
                         if(summaryText.isNotBlank()) TextButton(onClick={
                             (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(i.title,summaryText));onMessage(context.uiString(R.string.text_copied))
                         }) {UiIcon(R.drawable.ui_copy,modifier=Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text(context.uiString(if(i.type=="image") R.string.copy_description else R.string.copy_summary))}
+                        ReportResponseButton(summaryText,onMessage)
+                        Text(context.uiString(R.string.ai_generated),fontSize=11.sp,color=appMuted)
+                        ModelCapabilityNotice()
                         Text(if(i.type=="image") context.uiString(R.string.description) else if(i.summary.isBlank() && i.status.startsWith("pending_ai")) context.uiString(R.string.pending) else context.uiString(R.string.summary),fontWeight=FontWeight.Bold,color=accent)
                         Text(if(i.type=="image") description.ifBlank {
                             if(PostContent.failed(i)) context.uiString(R.string.description_failed)
@@ -689,7 +704,7 @@ class MainActivity:ComponentActivity() {
                         }
                     }
                     if(pendingQuestion==null && answers.isEmpty()) Text(context.uiString(R.string.answers_placeholder),fontSize=12.sp,color=Color.LightGray)
-                    answers.forEach { a->Surface(color=panel,shape=RoundedCornerShape(12.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(a.question,fontWeight=FontWeight.Bold);Spacer(Modifier.height(6.dp));Text(a.answer);Text(a.model,fontSize=10.sp,color=Color.Gray)}} }
+                    answers.forEach { a->Surface(color=panel,shape=RoundedCornerShape(12.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(a.question,fontWeight=FontWeight.Bold);Spacer(Modifier.height(6.dp));Text(a.answer);Text(a.model,fontSize=10.sp,color=Color.Gray);ReportResponseButton(a.answer,onMessage)}} }
                 }
                 } }
                 item(key="text-header") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -723,6 +738,7 @@ class MainActivity:ComponentActivity() {
                     }
                 }
                 item(key="actions") { Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                if(busy) TextButton(onClick={ProcessingQueue.stop(context,id);onRefresh()}) {Text(context.uiString(R.string.stop_processing))}
                 Column(horizontalAlignment=Alignment.Start) {
                     TextButton(enabled=!busy && i.body.isNotBlank(),onClick={
                         scope.launch {withContext(Dispatchers.IO) {ProcessingQueue.summary(context,id)};onRefresh();onMessage(context.uiString(R.string.queued))}
@@ -775,6 +791,7 @@ class MainActivity:ComponentActivity() {
     var licenses by remember {mutableStateOf<String?>(null)}
     var downloadDialog by remember {mutableStateOf(false)}
     var checkingModel by remember {mutableStateOf(false)}
+    var removeModel by remember {mutableStateOf(false)}
     fun startDownload(mobile: Boolean) {
         downloadDialog=false
         runCatching {
@@ -787,13 +804,23 @@ class MainActivity:ComponentActivity() {
         text={Text(context.uiString(if(state.waitingForWifi) R.string.model_mobile_restart else R.string.model_network_explanation))},
         confirmButton={TextButton(onClick={startDownload(true)}){Text(context.uiString(R.string.download_mobile))}},
         dismissButton={TextButton(onClick={if(state.waitingForWifi) downloadDialog=false else startDownload(false)}){Text(context.uiString(R.string.download_wifi))}})
+    if(removeModel) AlertDialog(onDismissRequest={removeModel=false},title={Text(context.uiString(R.string.model_remove))},text={Text(context.uiString(R.string.model_remove_confirm))},confirmButton={TextButton(onClick={
+        removeModel=false
+        scope.launch {
+            runCatching {withContext(Dispatchers.IO) {LocalModel.delete(context)}}
+                .onSuccess {state=LocalModel.state(context);onMessage(context.uiString(R.string.model_removed))}
+                .onFailure {onError(it.message.orEmpty())}
+        }
+    }) {Text(context.uiString(R.string.model_remove))}},dismissButton={TextButton(onClick={removeModel=false}) {Text(context.uiString(R.string.cancel))}})
     if(licenses!=null) AlertDialog(onDismissRequest={licenses=null},title={Text(context.uiString(R.string.licenses))},text={
         Text(licenses!!,Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),fontSize=12.sp)
     },confirmButton={TextButton(onClick={licenses=null}){Text(context.uiString(R.string.close))}})
     LaunchedEffect(Unit) { while(true) {state=LocalModel.state(context);unloadAllowed=withContext(Dispatchers.IO) {ProcessingQueue.canUnload(context)}; delay(1500)} }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Text(context.uiString(R.string.app_version,BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE),fontSize=13.sp,color=appMuted,modifier=Modifier.testTag("app-version"))
         Text(context.uiString(R.string.model_heading),fontSize=20.sp,fontWeight=FontWeight.Bold)
         Text(context.uiString(R.string.local_processing_explanation),fontSize=13.sp,color=Color.LightGray)
+        BetaSettings()
         Text(state.message,color=if(LocalModel.ready(context)) Color(0xFF8DE4B2) else Color.LightGray)
         if(state.active) LinearProgressIndicator(progress=state.progress/100f,modifier=Modifier.fillMaxWidth())
         if(!LocalModel.ready(context) && !state.active) Button(onClick={downloadDialog=true},shape=RoundedCornerShape(12.dp)){Text(context.uiString(R.string.download_model))}
@@ -815,6 +842,7 @@ class MainActivity:ComponentActivity() {
                 onMessage(context.uiString(if(unloaded) R.string.model_unloaded else R.string.queued))
             }}) {Text(context.uiString(R.string.free_model_memory))}
             Text(context.uiString(R.string.free_memory_explanation),fontSize=12.sp,color=appMuted)
+            TextButton(enabled=unloadAllowed,onClick={removeModel=true}) {Text(context.uiString(R.string.model_remove))}
         }
         Text(context.uiString(R.string.model_file_explanation),fontSize=12.sp,color=Color.LightGray)
         Divider()
@@ -850,24 +878,24 @@ class MainActivity:ComponentActivity() {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).clip(CircleShape)) {
                 androidx.compose.foundation.Image(
-                    androidx.compose.ui.res.painterResource(R.drawable.supermens_launcher),null,
-                    Modifier.fillMaxSize().graphicsLayer(scaleX=1.015f,scaleY=1.015f),
+                    androidx.compose.ui.res.painterResource(R.drawable.ic_launcher_foreground),null,
+                    Modifier.fillMaxSize().graphicsLayer(scaleX=1.4f,scaleY=1.4f),
                     contentScale=ContentScale.Crop
                 )
             }
             Spacer(Modifier.width(12.dp));Text("SuperMens",fontSize=22.sp,fontWeight=FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
-            Text(context.uiString(R.string.made_with),fontSize=13.sp,color=appMuted)
-            Spacer(Modifier.width(8.dp))
-            UiIcon(R.drawable.claude_code_mascot,"Claude Code",modifier=Modifier.size(28.dp),tint=Color.Unspecified)
-            Spacer(Modifier.width(8.dp));Text("by",fontSize=13.sp,color=appMuted)
             TextButton(onClick={
                 val url=context.getString(R.string.repository_url).trim()
                 if(url.isBlank()) onMessage(context.uiString(R.string.repo_pending))
                 else runCatching { context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) }
                     .onFailure { onError(context.uiString(R.string.link_open_failed)) }
-            }) { Text("BBNSS",fontSize=13.sp) }
+            }) {
+                UiIcon(R.drawable.ui_github,modifier=Modifier.size(16.dp),tint=appMuted)
+                Spacer(Modifier.width(6.dp))
+                Text("BBNSS",fontSize=13.sp)
+            }
         }
     }
 }

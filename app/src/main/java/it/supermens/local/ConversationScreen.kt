@@ -68,6 +68,7 @@ import java.util.UUID
     val busy=saving || recording || active!=null || failed!=null
     val voice=remember {OfflineVoice(context,{voiceMissing=true},{reading=it})}
     val listState=rememberLazyListState()
+    val live by LocalAi.preview.collectAsState()
     LaunchedEffect(item) {if(!targetLoaded && item!=null) {language=item!!.targetLanguage.ifBlank {AppLanguage.deviceTag(context)};targetLoaded=true}}
     LaunchedEffect(messages) {
         messages.firstOrNull {it.state=="draft"}?.let {draft ->if(draftId==null && input.isBlank()) {draftId=draft.id;input=draft.text}}
@@ -169,6 +170,8 @@ import java.util.UUID
     Column(Modifier.fillMaxSize().imePadding()) {
         LazyColumn(state=listState,modifier=Modifier.weight(1f).fillMaxWidth().testTag("conversation-content"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item {
+                Text(context.uiString(R.string.ai_disclosure),color=appMuted)
+                ModelCapabilityNotice()
                 if(type=="chat") Text(context.uiString(R.string.chat_warning),color=appMuted)
                 item?.let {Text(it.title,style=MaterialTheme.typography.h6)}
                 Row {
@@ -186,7 +189,7 @@ import java.util.UUID
                     TextButton(enabled=!busy,onClick={languageDialog=true}) {Text(context.uiString(R.string.target_language)+": "+TranslationLanguages.name(language,Locale.forLanguageTag(AppLanguage.code(context))))}
                 }
                 if(messages.isEmpty()) Text(context.uiString(R.string.new_conversation_hint),color=appMuted)
-                item?.summary?.takeIf {it.isNotBlank()}?.let {Text(context.uiString(R.string.summary),color=appAccent);Text(it)}
+                item?.summary?.takeIf {it.isNotBlank()}?.let {Text(context.uiString(R.string.summary),color=appAccent);Text(it);ReportResponseButton(it,onMessage)}
             }
             items(messages,key={it.id}) {m ->
                 Surface(color=if(m.role=="user") appAccentSurface else appPanel,shape=RoundedCornerShape(12.dp)) {
@@ -195,6 +198,7 @@ import java.util.UUID
                         if(m.text.isNotBlank()) Text(m.text)
                         if(m.state=="transcribing") Text(context.uiString(R.string.processing),color=appMuted)
                         if(m.state=="draft") Text(context.uiString(R.string.correct_transcript),color=appMuted)
+                        if(m.role=="assistant") ReportResponseButton(m.text,onMessage)
                         if(m.contextLimited) Text(context.uiString(R.string.context_limited),color=appMuted)
                         Row {
                             if(m.text.isNotBlank()) TextButton(onClick={
@@ -210,6 +214,9 @@ import java.util.UUID
                 val additions=segments.filter {PostContent.isAddition(it)}
                 if(additions.isNotEmpty()) {Text(context.uiString(R.string.manual_additions),color=appAccent);additions.forEach {Text(it.text)}}
                 if(active!=null) {
+                    ModelCapabilityNotice()
+                    live?.takeIf {it.itemId==postId}?.let {Text(context.uiString(R.string.ai_preview),color=appMuted);Text(it.text)}
+                    TextButton(onClick={postId?.let {ProcessingQueue.stop(context,it);onRefresh()}}) {Text(context.uiString(R.string.stop_processing))}
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(active.progress.ifBlank {context.uiString(R.string.conversation_pending)},color=appMuted)
                 }

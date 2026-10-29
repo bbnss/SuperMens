@@ -45,6 +45,7 @@ import kotlinx.coroutines.delay
             }
         }
     }
+    ModelCapabilityNotice()
     if(chooseNetwork) AlertDialog(onDismissRequest={chooseNetwork=false},title={Text(context.uiString(R.string.model_network_title))},
         text={Text(context.uiString(R.string.model_network_explanation))},
         confirmButton={TextButton(onClick={start(true)}) {Text(context.uiString(R.string.download_mobile))}},

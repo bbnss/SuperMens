@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,28 +13,42 @@ android {
         applicationId = "it.supermens.offline"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.2.8"
+        versionCode = 13
+        versionName = "0.3.0-beta3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
-    signingConfigs {
-        create("publicRelease") {
-            storeFile = providers.environmentVariable("SUPERMENS_KEYSTORE_PATH").orNull?.let { file(it) }
-            storePassword = providers.environmentVariable("SUPERMENS_KEYSTORE_PASSWORD").orNull
-            keyAlias = providers.environmentVariable("SUPERMENS_KEY_ALIAS").orNull
-            keyPassword = providers.environmentVariable("SUPERMENS_KEY_PASSWORD").orNull
+    buildFeatures { compose = true; buildConfig = true }
+    // Keep both languages available when users change the app language offline.
+    bundle { language { enableSplit = false } }
+    defaultConfig {
+        val reportEndpoint = providers.environmentVariable("SUPERMENS_REPORT_ENDPOINT").orElse("").get()
+        if(reportEndpoint.isNotEmpty()) {
+            val uri=URI(reportEndpoint)
+            require(uri.scheme=="https" && !uri.host.isNullOrBlank() && uri.rawUserInfo==null && uri.rawQuery==null && uri.rawFragment==null && reportEndpoint.none {it=='"' || it=='\\' || it.isWhitespace()})
+        }
+        buildConfigField("String", "REPORT_ENDPOINT", "\"$reportEndpoint\"")
+        val privacyEmail=providers.environmentVariable("SUPERMENS_PRIVACY_EMAIL").orElse("").get()
+        require(privacyEmail.isEmpty() || privacyEmail.matches(Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")))
+        buildConfigField("String", "PRIVACY_EMAIL", "\"$privacyEmail\"")
+        if(providers.environmentVariable("SUPERMENS_PUBLIC_RELEASE").orElse("false").get()=="true") {
+            require(reportEndpoint.isNotEmpty() && privacyEmail.isNotEmpty()) {"Public releases require the report endpoint and a private privacy contact"}
         }
     }
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("publicRelease")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("beta") {
+            // Exercise the same optimized JNI path as release without production keys.
+            initWith(getByName("release"))
+            applicationIdSuffix = ".beta"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
         }
     }
 }
@@ -54,20 +70,6 @@ val prepareLicenseAssets by tasks.registering(Sync::class) {
 }
 android.sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/licenseAssets"))
 tasks.named("preBuild").configure { dependsOn(prepareLicenseAssets) }
-
-// AGP can otherwise silently produce an unsigned release when credentials are absent.
-gradle.taskGraph.whenReady {
-    val releaseTasks = setOf("assembleRelease", "packageRelease", "bundleRelease", "installRelease")
-    if (allTasks.any { it.project.path == project.path && it.name in releaseTasks }) {
-        val missing = listOf(
-            "SUPERMENS_KEYSTORE_PATH", "SUPERMENS_KEYSTORE_PASSWORD",
-            "SUPERMENS_KEY_ALIAS", "SUPERMENS_KEY_PASSWORD"
-        ).filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
-        if (missing.isNotEmpty()) {
-            throw GradleException("Release signing requires private environment variables: ${missing.joinToString()}")
-        }
-    }
-}
 
 dependencies {
     testImplementation("junit:junit:4.13.2")

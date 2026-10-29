@@ -10,12 +10,12 @@ An AI-powered personal knowledge archive for Android,<br>
 with a local LLM and on-device processing.
 
 [![License: GPL v3 + exception](https://img.shields.io/badge/License-GPLv3%20%2B%20exception-blue)](LICENSE_EXCEPTION.md)
-![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange)
+![Status: Beta preparation](https://img.shields.io/badge/Status-Beta_preparation-orange)
 ![Android 15+](https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white)
 ![ARM64](https://img.shields.io/badge/Architecture-ARM64-64748B)
 ![On-device AI](https://img.shields.io/badge/AI-On--device-38BDF8)
 
-[**Download the APK**](https://github.com/bbnss/SuperMens/releases/latest/download/SuperMens.apk)
+[**Download the beta APK**](https://github.com/bbnss/SuperMens/releases/download/v0.3.0-beta3/SuperMens-Beta.apk)
 · [Privacy policy](https://bbnss.github.io/SuperMens/privacy.html)
 · [Report an issue](https://github.com/bbnss/SuperMens/issues)
 · [SuperBrain inspiration](https://github.com/sidinsearch/superbrain)
@@ -28,9 +28,11 @@ with a local LLM and on-device processing.
 
 SuperMens brings the save-and-understand idea of tools like [SuperBrain](https://github.com/sidinsearch/superbrain) directly to Android. Capture content, extract its text, generate summaries and ask questions about your saved documents.
 
-AI inference runs locally using **Gemma 4 E2B through LiteRT-LM**. No remote backend, app account or AI API key is required.
+AI inference runs locally using **Gemma 4 E2B through LiteRT-LM**. No remote inference backend, app account or AI API key is required. An optional, explicitly submitted content report contacts the developer reporting service.
 
-**Currently in Alpha, tested on Google Pixel 7a and Pixel 9a.** Compatibility and performance on other devices remain experimental.
+**0.3.0-beta3 is an experimental device-testing build.** New installations process content on battery immediately; **Process only while charging** is optional and existing settings are preserved. This beta also fixes native streaming callbacks being removed by release optimization, shows the installed app version in Settings and uses a tightly cropped brain status icon. The maintainer reports that beta2 works on their phone; broader hardware compatibility and performance remain to be measured. See the [beta release checklist](docs/PLAY_BETA.md).
+
+The downloadable APK installs as **SuperMens Beta** (`it.supermens.offline.beta`), alongside the regular app, using the standard Android debug certificate for testing. Its archive and model are separate. Official production signing and Play distribution remain separate steps. The report-sending service is not connected in this build; no report is transmitted.
 
 ## What you can save
 
@@ -50,7 +52,7 @@ Share content from other Android apps, import files, paste a link or capture a p
 
 - **Ask your documents:** local retrieval finds relevant passages in long content; questions and answers stay with the post.
 - **Find it again:** search your local archive and filter by content type.
-- **Process while charging:** capture online material immediately, then run automatic processing when connected to power. Manual questions and actions remain available on battery.
+- **Process immediately, or only while charging:** new installations run automatic processing on battery too. Enable **Process only while charging** in Settings to defer automatic OCR and AI until power is connected. Existing choices are preserved. Manual questions and actions remain available on battery; severe thermal status pauses heavy work.
 - **Resume interrupted work:** persistent queues and checkpoints preserve completed transcription clips, PDF pages and summary steps. Heavy tasks run one at a time.
 - **Read comfortably:** long transcripts, OCR and document text start with a compact preview. Expand the complete text, collapse it, or return to the top with one tap.
 - **Open saved files:** launch a compatible viewer from the detail screen. PDFs open from a permanent private copy, also included in backups. Relinking asks twice before replacing that copy.
@@ -59,7 +61,7 @@ Share content from other Android apps, import files, paste a link or capture a p
 - **Daily timeline:** the **All** tab groups posts by creation date and keeps the two-column cards. Each day has an expandable list of clickable post titles. Gemma creates a descriptive one-sentence title together with each post summary; images, chats and translations also receive titles when processed. Existing titles remain until those posts are processed again. No daily-summary inference runs. Returning from a post preserves the timeline position, search, filter and expanded lists. Back from the home asks before leaving the app.
 - **Translate locally:** use the **Translation** entry in the + menu for written/pasted text, text files, recordings or imported audio. Review the transcription before translating; the target language initially follows the device. Choose a common language or enter another language name/code; quality varies. Translation uses separate system instructions and a bundled offline language check; a clearly wrong-language result receives one corrective attempt before showing a retryable error. Use **Retranslate** to reload the original text and its target language. Reopen a translation post to continue translating or chat about its text.
 - **Free chat:** use the **Free chat** entry to converse with the local model using text or transcribed audio. Conversations are saved as posts and can be resumed or summarized. Switch between text and spoken replies; playback uses installed offline Android voices. A small local model can invent facts, especially without supplied context.
-- **Keep your data portable:** export and restore ZIP archives containing structured data, Markdown notes and retained attachments.
+- **Keep your data portable:** export and restore ZIP archives containing structured data, Markdown notes and retained attachments. Exports are unencrypted and limited to 2 GB uncompressed and 9,999 entries, matching restore limits.
 
 - **Keep storage lean:** compressed images and extracted text. Newly imported videos are not retained after preparation; temporary audio is removed after successful transcription.
 - **English and Italian:** the interface follows your preferred device or app language, with English as the fallback.
@@ -68,23 +70,23 @@ Shared PDFs carry the project URL in every page footer; image/text shares carry 
 
 ## Get started
 
-1. Download and install the [APK](https://github.com/bbnss/SuperMens/releases/latest/download/SuperMens.apk).
+1. Download and install the [beta APK](https://github.com/bbnss/SuperMens/releases/download/v0.3.0-beta3/SuperMens-Beta.apk). It appears as **SuperMens Beta** and updates earlier installations of the separate beta app without uninstalling them.
 2. Use the home banner to download **Gemma 4 E2B**. On Wi-Fi the download starts immediately; on mobile/metered data choose whether to download now or wait for Wi-Fi. You can also import the supported `.litertlm` file in **Settings**.
 3. Use **Test model** to check local inference, then save something through Android sharing or the **+** menu.
 4. Open its card to read, copy, share or ask a question.
 
-Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source. Version 0.2.4 is a regular release, so prereleases do not need to be enabled; the app remains experimental.
+Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source and enable prereleases for beta updates. Choose the `SuperMens-Beta.apk` asset. This is a separate installation from older `SuperMens.apk` releases.
 
-The model is downloaded separately and occupies approximately [2.6 GB](https://developers.google.com/edge/litert-lm/models/gemma-4). Allow additional storage for imports and temporary processing files. The supported model revision and import details are in the [developer notes](docs/DEVELOPMENT.md).
+The model is downloaded separately and occupies approximately [2.6 GB](https://developers.google.com/edge/litert-lm/models/gemma-4). Allow 6–8 GB free for working space; each model download/import requires the incoming model plus at least 512 MiB free. Existing weights are retained during import verification. You can remove weights in Settings without deleting your archive. The supported model revision and import details are in the [developer notes](docs/DEVELOPMENT.md).
 
 ### Device requirements
 
 - **Android 15 or newer** — API 35 minimum.
 - **64-bit ARM processor** — `arm64-v8a`.
 - **8 GB RAM or more recommended**, with additional memory providing headroom.
-- Compatible GPU support for AI image descriptions; text processing can fall back to CPU.
+- Compatible GPU support for AI image descriptions; GPU text-only and CPU fallback modes have visible limitations. NPU hardware alone does not guarantee compatibility. Settings provides a technical preview that you may share without content or persistent identifiers.
 
-Moving from an earlier debug build to this release-signed build requires exporting your archive, uninstalling the debug app, installing this APK and importing the archive. The model must be downloaded or imported again.
+To copy data from the regular app, export its archive and import it in **SuperMens Beta**. Import the original model file or download weights in the beta as well. You can keep the regular app installed. Existing separate beta installations retain their archive, model and preferences during an update.
 
 ## Privacy and offline use
 
@@ -94,9 +96,9 @@ Internet is needed to download the model and acquire online sources. Once the re
 
 ML Kit may contact Google for updates and send technical usage and performance metrics. According to [Google’s ML Kit privacy documentation](https://developers.google.com/ml-kit/terms), input content and processing results are not sent to Google. The optional Invidious caption fallback contacts the instance you configure.
 
-## Alpha limitations
+## Beta limitations
 
-AI output may contain mistakes. Check important details against the source.
+AI output may contain mistakes. Check important details against the source. Chat replies stream provisionally; **Stop processing** requests cancellation and **Retry** resumes saved checkpoints. Report a generated response through its editable, consent-based report dialog when the reporting service is configured.
 
 Public social posts can still be blocked, incomplete or unavailable. YouTube captions are not always accessible. SuperMens processes the content it can obtain; X posts also support adding missing text manually. Subtitle files in `.srt` and `.vtt` format can be imported when captions are unavailable.
 
@@ -114,7 +116,9 @@ Requires JDK 17, Android SDK 36 and the included Gradle wrapper.
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-Release builds require [private signing configuration](docs/DEVELOPMENT.md#release-signing).
+For private device testing, run `./gradlew :app:assembleBeta`. This creates **SuperMens Beta** (`it.supermens.offline.beta`) with release optimization and the standard Android debug signature. It installs alongside the regular app, with a separate archive and model. Import an exported ZIP and import/download the model if needed. Future beta APKs signed with the same debug certificate update this separate installation.
+
+Release APK/AAB builds are unsigned; official signing happens separately in the maintainer's terminal. See the [signing workflow](docs/DEVELOPMENT.md#release-signing).
 
 Built with Kotlin, Jetpack Compose, SQLite, WorkManager, LiteRT-LM and ML Kit. YouTube captions use direct retrieval with an optional Invidious fallback. Third-party components and model weights retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

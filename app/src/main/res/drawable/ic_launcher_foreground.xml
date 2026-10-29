@@ -1,6 +1,4 @@
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:insetLeft="16.6667%" android:insetTop="16.6667%"
-    android:insetRight="16.6667%" android:insetBottom="16.6667%">
-    <bitmap android:src="@drawable/supermens_launcher" android:gravity="fill"
-        android:filter="true" android:antialias="true" />
-</inset>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#F5D8A6" android:pathData="M51,28 C44,22 36,26 35,33 C27,33 24,41 28,47 C22,54 25,63 31,66 C28,74 34,82 41,81 C45,88 52,83 52,77 L52,35 C52,32 52,30 51,28 Z M57,28 C64,22 72,26 73,33 C81,33 84,41 80,47 C86,54 83,63 77,66 C80,74 74,82 67,81 C63,88 56,83 56,77 L56,35 C56,32 56,30 57,28 Z" />
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#A66C3A" android:strokeWidth="2.8" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M35,34 C35,42 44,40 45,46 C46,51 40,54 34,52 M29,48 C36,46 41,48 41,42 M30,64 C37,66 43,61 43,58 M41,80 C39,74 42,69 48,70 M35,72 C35,66 40,63 40,59 M73,34 C73,42 64,40 63,46 C62,51 68,54 74,52 M79,48 C72,46 67,48 67,42 M78,64 C71,66 65,61 65,58 M67,80 C69,74 66,69 60,70 M73,72 C73,66 68,63 68,59" />
+</vector>

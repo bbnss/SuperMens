@@ -26,6 +26,17 @@ class DailyHomeUiTest {
     }
     private fun waitTag(tag:String)=rule.waitUntil(15000) {runCatching {rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()}.getOrDefault(false)}
     private fun waitText(text:String)=rule.waitUntil(15000) {rule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()}
+    private fun dumpUi(name:String) {
+        File(context.getExternalFilesDir(null),"timeline-$name.txt").writeText(rule.onRoot(useUnmergedTree=true).printToString())
+        instrumentation.uiAutomation.takeScreenshot()?.let {image ->
+            File(context.getExternalFilesDir(null),"timeline-$name.png").outputStream().use {image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
+            image.recycle()
+        }
+    }
+    private fun waitVisibleText(text:String) {
+        try {rule.waitUntil(15000) {runCatching {rule.onNodeWithText(text).isDisplayed()}.getOrDefault(false)}}
+        catch(error:Throwable) {dumpUi("shared");throw error}
+    }
 
     @Test fun titleListUpdatesOpensPostsSurvivesRecreationAndHidesInSearch() {
         BrainStore(context).use {store ->
@@ -48,7 +59,8 @@ class DailyHomeUiTest {
                 scenario.recreate();waitTag("daily-title:$pending")
                 rule.onNodeWithText("Cerca nei post").performTextInput("Titolo precedente")
                 rule.waitUntil(15000) {rule.onAllNodesWithTag("daily-toggle:${day.value}").fetchSemanticsNodes().isEmpty()}
-                rule.onNodeWithTag("day:${day.value}").assertIsDisplayed()
+                try {rule.onNodeWithTag("day:${day.value}").assertIsDisplayed()}
+                catch(error:Throwable) {dumpUi("search");throw error}
                 rule.onNodeWithTag("daily-title:$first").assertDoesNotExist()
                 rule.onNodeWithContentDescription("Cancella ricerca").performClick()
                 waitTag("daily-title:$pending")
@@ -72,6 +84,45 @@ class DailyHomeUiTest {
                 scenario.recreate();waitText("Timeline item 30")
                 assertEquals(before,rule.onNodeWithText("Timeline item 30").fetchSemanticsNode().boundsInRoot.top,3f)
             } finally {ids.forEach {ProcessingQueue.remove(context,it)}}}
+        }
+    }
+    @Test fun incomingShareFocusesTheNewPostFromAnOlderDayAndClearsFilters() {
+        BrainStore(context).use {store ->
+            val ids=(0 until 24).map {index ->store.add("note","Share timeline $index",body="Body").also {
+                store.update(it,status="ready")
+                store.writableDatabase.execSQL("UPDATE items SET created_at=? WHERE id=?",arrayOf<Any>(System.currentTimeMillis()-(index+1)*86_400_000L,it))
+            }}.toMutableList()
+            val first="Incoming share on an old day"
+            val second="Incoming share while filtered"
+            var originalIntent:Intent?=null
+            launch().use {scenario ->try {
+                scenario.onActivity {originalIntent=Intent(it.intent)}
+                waitTag("home-posts")
+                rule.onNodeWithTag("home-model-status").assertIsDisplayed()
+                rule.onNodeWithContentDescription("Aggiorna riassunto del post").assertDoesNotExist()
+                rule.onNodeWithTag("home-posts").performScrollToNode(hasText("Share timeline 18"))
+                fun share(text:String) = scenario.onActivity {activity ->
+                    val receive=MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply {isAccessible=true}
+                    receive.invoke(activity,Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,text)})
+                }
+                share(first)
+                waitVisibleText(first)
+                rule.onNodeWithText(first).performClick();waitText("Scheda")
+                rule.onNodeWithContentDescription("Aggiorna riassunto del post").assertIsDisplayed()
+                rule.onNodeWithContentDescription("Indietro").performClick()
+                rule.onNodeWithText("Immagini").performScrollTo().performClick()
+                rule.onNodeWithText("Cerca nei post").performTextInput("no-matching-post")
+                waitText("Nessun risultato")
+                share(second)
+                waitVisibleText(second)
+                rule.onNodeWithContentDescription("Cancella ricerca").assertDoesNotExist()
+                scenario.onActivity {it.intent=originalIntent}
+                scenario.recreate();waitVisibleText(second)
+            } finally {
+                scenario.onActivity {it.intent=originalIntent}
+                ids+=store.list().filter {it.body in setOf(first,second)}.map {it.id}
+                ids.forEach {ProcessingQueue.remove(context,it)}
+            }}
         }
     }
     @Test fun backFromHomeAsksBeforeClosingAndDialogsTakePriority() {

@@ -36,10 +36,29 @@ object LocalModel {
             prefs.getLong("verified_modified", -1) == target.lastModified()
     }
     fun downloadId(context: Context) = preferences(context).getLong(downloadIdKey, -1L)
+    fun availableBytes(context: Context): Long {
+        val directory=file(context).parentFile!!
+        require(directory.isDirectory || directory.mkdirs()) { context.uiString(R.string.model_storage_unavailable) }
+        return android.os.StatFs(directory.absolutePath).availableBytes
+    }
+    private fun requireSpace(context: Context) {
+        require(BetaPolicy.enoughSpace(availableBytes(context),expectedBytes)) { context.uiString(R.string.model_storage_low) }
+    }
+    fun delete(context: Context) = ProcessingGuard.exclusive {
+        require(ProcessingQueue.canUnload(context,false)) { context.uiString(R.string.queued) }
+        LocalAi.unload()
+        synchronized(lock) {
+            cancel(context)
+            val target=file(context)
+            require(!target.exists() || target.delete()) { context.uiString(R.string.model_delete_failed) }
+            preferences(context).edit().remove("verified_sha256").remove("verified_modified").apply()
+        }
+    }
     fun start(context: Context, allowMetered: Boolean = false): Long = synchronized(lock) {
         require(!ready(context)) { context.uiString(R.string.model_already_installed) }
         if (state(context).active) return@synchronized downloadId(context)
         cancel(context)
+        requireSpace(context)
         val target = partial(context)
         target.parentFile?.mkdirs()
         val request = DownloadManager.Request(Uri.parse("$url&request=${UUID.randomUUID()}"))
@@ -80,7 +99,14 @@ object LocalModel {
                     State(context.uiString(if (reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI) R.string.download_waiting_wifi else R.string.download_paused, progress), progress, true, reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI)
                 }
                 DownloadManager.STATUS_SUCCESSFUL -> verifying(context)
-                else -> State(context.uiString(R.string.download_failed_reason, number(DownloadManager.COLUMN_REASON)), progress, false)
+                else -> {
+                    val reason=number(DownloadManager.COLUMN_REASON).toInt()
+                    State(context.uiString(when(reason) {
+                        DownloadManager.ERROR_INSUFFICIENT_SPACE -> R.string.model_storage_low
+                        DownloadManager.ERROR_FILE_ERROR, DownloadManager.ERROR_DEVICE_NOT_FOUND -> R.string.model_storage_unavailable
+                        else -> R.string.model_download_retry
+                    }),progress,false)
+                }
             }
         }
     }
@@ -126,8 +152,8 @@ object LocalModel {
                     if (prefs.getString("generation", "") != generation) return@exclusive
                     LocalAi.unload()
                     if (candidate != file(context)) {
-                        file(context).delete()
-                        require(candidate.renameTo(file(context))) { context.uiString(R.string.model_install_failed) }
+                        // POSIX rename replaces atomically on this same-volume staging path.
+                        android.system.Os.rename(candidate.absolutePath,file(context).absolutePath)
                     }
                     markVerified(context)
                 }
@@ -145,17 +171,25 @@ object LocalModel {
     fun import(context: Context, uri: Uri) {
         val target = file(context)
         target.parentFile?.mkdirs()
+        requireSpace(context)
         val staged = File.createTempFile("model-import-", ".litertlm", target.parentFile)
         try {
-            context.contentResolver.openInputStream(uri)?.use { input -> staged.outputStream().use { input.copyTo(it) } }
+            context.contentResolver.openInputStream(uri)?.use { input -> staged.outputStream().use { output ->
+                val buffer=ByteArray(65536);var bytes=0L
+                while(true) {
+                    val count=input.read(buffer);if(count<0) break
+                    bytes+=count
+                    require(bytes<=expectedBytes) {context.uiString(R.string.model_integrity_failed)}
+                    output.write(buffer,0,count)
+                }
+            } }
                 ?: error(context.uiString(R.string.file_unreadable))
             require(ModelIntegrity.matches(staged, expectedBytes, expectedSha256)) { context.uiString(R.string.model_integrity_failed) }
             ProcessingGuard.exclusive {
                 synchronized(lock) {
                     LocalAi.unload()
                     cancel(context)
-                    target.delete()
-                    require(staged.renameTo(target)) { context.uiString(R.string.model_install_failed) }
+                    android.system.Os.rename(staged.absolutePath,target.absolutePath)
                     markVerified(context)
                 }
             }
