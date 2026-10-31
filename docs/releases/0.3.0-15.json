@@ -183,5 +183,16 @@
     "docs/privacy.html",
     "docs/privacy-it.html"
   ],
-  "note": "Build-time source snapshot reconstructed from the preserved source tree and verified against the digest recorded before upload. Release provenance documentation was added after the build. This record is not a signed build attestation."
+  "note": "Build-time source snapshot reconstructed from the preserved source tree and verified against the digest recorded before upload. Release provenance documentation was added after the build. This record is not a signed build attestation.",
+  "independent_rebuild": {
+    "compiled_successfully": true,
+    "bit_for_bit_reproducibility_demonstrated": false,
+    "different_entries": [
+      "DEX",
+      "resource table",
+      "baseline profile",
+      "R8 mapping and metadata",
+      "Git metadata"
+    ]
+  }
 }

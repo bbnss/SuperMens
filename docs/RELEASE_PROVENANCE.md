@@ -32,9 +32,11 @@ in [the release record](releases/0.3.0-15.json).
 The README, two privacy document headers and this provenance documentation were
 updated after the build. Application source, resources, dependencies and build
 configuration match the recorded snapshot. The record was assembled after the
-original build and is not a signed build attestation. An independently rebuilt
-unsigned artifact may differ in build metadata; the download hashes identify
-the actual distributed artifacts.
+original build and is not a signed build attestation. An independent offline
+rebuild compiled successfully but was not byte-identical: DEX, the resource
+table, the baseline profile, R8 mapping/metadata and Git metadata differed.
+Bit-for-bit reproducibility has not been demonstrated. The download hashes
+identify the actual distributed artifacts.
 
 Earlier GitHub releases use `it.supermens.offline` or
 `it.supermens.offline.beta`, and their signatures differ. They remain historical
