@@ -26,7 +26,7 @@ PATTERNS = {
 FORBIDDEN_SUFFIXES = {".apk", ".aab", ".jks", ".keystore", ".pem", ".key", ".p12", ".pfx",
                       ".db", ".sqlite", ".sqlite3", ".zip", ".litertlm", ".tflite", ".log"}
 FORBIDDEN_PARTS = {"build", ".gradle", ".kotlin", ".idea", ".private-signing", "profiles"}
-TOP_LEVEL_FILES = {".gitignore", "README.md", "LICENSE", "LICENSE_EXCEPTION.md", "THIRD_PARTY_NOTICES.md", "build.gradle.kts",
+TOP_LEVEL_FILES = {".gitignore", "README.md", "LICENSE", "LICENSE_EXCEPTION.md", "THIRD_PARTY_NOTICES.md", "reporting.properties", "build.gradle.kts",
                    "settings.gradle.kts", "gradle.properties", "gradlew"}
 TOP_LEVEL_DIRS = {"app", "gradle", "tools", "docs"}
 
@@ -42,39 +42,53 @@ def candidates():
             subprocess.run(["git", "init", "--bare", "--quiet", str(repository)], check=True)
             raw = subprocess.check_output(["git", "--git-dir", str(repository), "--work-tree", str(ROOT),
                                            "ls-files", "--others", "--exclude-standard", "-z"])
-    return sorted(set(name.decode("utf-8") for name in raw.split(b"\0") if name))
+    names = {name.decode("utf-8") for name in raw.split(b"\0") if name}
+    # Git also lists tracked files removed from the working tree. This audit
+    # examines the current source; the shared Git guard checks index/history.
+    return sorted(name for name in names
+                  if (ROOT / name).exists() or (ROOT / name).is_symlink())
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path)
+    parser.add_argument("--allow-source-email", action="append", default=[], metavar="ADDRESS",
+                        help="Exact reviewed public or synthetic email allowed in source; other checks remain active.")
     parser.add_argument("--report-dir", type=Path,
                         default=Path(tempfile.gettempdir()) / "supermens-publication-review")
     args = parser.parse_args()
+    allowed_source_emails = {value.encode("utf-8") for value in args.allow_source_email}
     report_dir = args.report_dir.resolve()
     if report_dir == ROOT or ROOT in report_dir.parents:
         parser.error("Write review reports outside the source tree to avoid auditing generated reports.")
     findings = []
     files = candidates()
+    source_bytes = 0
 
     def scan(data, label, binary=False):
         for category, pattern in PATTERNS.items():
             if binary and category != "credential format":
                 continue  # Library binaries contain diagnostic templates and test domains.
             for match in pattern.finditer(data):
+                if not binary and category == "email address" and match.group() in allowed_source_emails:
+                    continue
                 line = data[:match.start()].count(b"\n") + 1 if not binary else None
                 findings.append({"file": label, "line": line, "category": category})
 
     for name in files:
         relative = Path(name)
         file = ROOT / relative
-        if file.is_symlink() or (len(relative.parts) == 1 and name not in TOP_LEVEL_FILES) or (
+        if file.is_symlink() or not file.is_file():
+            findings.append({"file": name, "category": "unexpected or private publication file"})
+            continue  # Never follow a source symlink, including a dangling one.
+        if (len(relative.parts) == 1 and name not in TOP_LEVEL_FILES) or (
             len(relative.parts) > 1 and relative.parts[0] not in TOP_LEVEL_DIRS
         ) or file.suffix.lower() in FORBIDDEN_SUFFIXES or set(relative.parts) & FORBIDDEN_PARTS or (
             file.name == "local.properties" or file.name.startswith(".env") or ".credentials." in file.name
         ):
             findings.append({"file": name, "category": "unexpected or private publication file"})
         data = file.read_bytes()
+        source_bytes += len(data)
         binary = b"\0" in data or file.suffix.lower() in {".jpg", ".jpeg", ".mp4", ".jar", ".png"}
         scan(data, name, binary)
     apk = None
@@ -98,9 +112,9 @@ def main():
                     findings.append({"file": "APK/" + entry.filename, "category": "local developer path"})
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "PUBLICATION_FILES.txt").write_text("\n".join(files) + "\n")
-    result = {"source_files": len(files), "source_bytes": sum((ROOT / name).stat().st_size for name in files),
-              "apk": apk, "findings": findings,
-              "limitations": "Pattern scan plus an explicit file allowlist; not a guarantee that all private data is detectable. APK scanning checks known credential formats and private file names, not every library string."}
+    result = {"source_files": len(files), "source_bytes": source_bytes,
+              "apk": apk, "findings": findings, "allowed_source_emails": sorted(args.allow_source_email),
+              "limitations": "Current working-tree pattern scan plus an explicit file allowlist; deleted files are omitted. The shared Git guard must separately check index and history before push. Not a guarantee that all private data is detectable. APK scanning checks known credential formats and private file names, not every library string."}
     (report_dir / "AUDIT.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"Publication candidates: {len(files)} files")
     print(f"Findings: {len(findings)} (matched values are never printed)")

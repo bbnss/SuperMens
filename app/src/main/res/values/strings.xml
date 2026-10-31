@@ -371,7 +371,7 @@
     <string name="ai_generated">AI-generated content</string>
     <string name="ai_preview">AI response in progress — not yet saved</string>
     <string name="report_response">Report AI response</string>
-    <string name="report_explanation">Only the response shown below will be sent to the developer. Remove any private passages. Your question and archive are not sent. Technical details are optional.</string>
+    <string name="report_explanation">The edited response, reason and app version will be sent through Google Apps Script to lumieitalia@gmail.com and kept for up to 30 days. Remove private passages. Your question and archive are not attached. Diagnostics are optional.</string>
     <string name="report_not_configured">Reporting is not connected in this beta build. Nothing will be sent. A reporting service is required before public release.</string>
     <string name="report_child">Child safety</string>
     <string name="report_harmful">Harmful or offensive content</string>
@@ -380,8 +380,10 @@
     <string name="report_preview">Response to send (editable, up to 16 KB)</string>
     <string name="report_diagnostics">Include technical diagnostics</string>
     <string name="report_consent">I agree to send the displayed content to the developer for review.</string>
-    <string name="report_send_failed">Not sent. Check your connection and retry.</string>
-    <string name="report_sent">Report received. Thank you.</string>
+    <string name="report_send_failed">Unable to confirm submission. Check your connection before trying again.</string>
+    <string name="report_send_unconfirmed">Submission not confirmed: the request timed out. The report may have arrived; retrying could send a duplicate.</string>
+    <string name="report_service_unavailable">The service cannot accept the report now. Try again later.</string>
+    <string name="report_sent">Report submitted. Thank you.</string>
     <string name="ai_refusal">I cannot help with that request. I can help with a safe topic or your documents.</string>
     <string name="privacy_contact">Private privacy contact</string>
 </resources>

@@ -4,29 +4,33 @@ package it.supermens.local
 
 import android.content.Context
 import org.json.JSONObject
-import java.net.URL
-import javax.net.ssl.HttpsURLConnection
+import java.io.IOException
 
 internal object AiReport {
-    val configured get()=BuildConfig.REPORT_ENDPOINT.isNotBlank()
-    fun send(context:Context,reason:String,response:String,diagnostics:Boolean) {
-        require(configured) {context.uiString(R.string.report_not_configured)}
+    val configured get()=AiReportTransport.endpointAllowed(BuildConfig.REPORT_ENDPOINT)
+    fun payload(reason:String,response:String,diagnostics:String?):ByteArray {
         require(reason in setOf("child_safety","harmful","deceptive","other"))
-        require(response.isNotBlank() && response.toByteArray(Charsets.UTF_8).size<=16_000)
+        require(response.isNotBlank() && response.toByteArray(Charsets.UTF_8).size<=AiReportTransport.MAX_TEXT_BYTES)
         val body=JSONObject().put("version",1).put("reason",reason).put("response",response)
             .put("app_version",BuildConfig.VERSION_NAME)
-        if(diagnostics) body.put("diagnostics",JSONObject(ModelDiagnostics.snapshot(context)))
-        val connection=URL(BuildConfig.REPORT_ENDPOINT).openConnection() as HttpsURLConnection
-        try {
-            connection.instanceFollowRedirects=false
-            connection.connectTimeout=15_000;connection.readTimeout=15_000
-            connection.requestMethod="POST";connection.doOutput=true
-            connection.setRequestProperty("Content-Type","application/json; charset=utf-8")
-            val bytes=body.toString().toByteArray(Charsets.UTF_8)
-            connection.setFixedLengthStreamingMode(bytes.size)
-            connection.outputStream.use {it.write(bytes)}
-            require(connection.responseCode==201) {context.uiString(R.string.report_send_failed)}
-            // No archive, prompt, persistent identifier or background retry is sent.
-        } finally {connection.disconnect()}
+        if(diagnostics!=null) body.put("diagnostics",JSONObject(diagnostics))
+        return body.toString().toByteArray(Charsets.UTF_8).also {require(it.size<=AiReportTransport.MAX_REQUEST_BYTES)}
+    }
+    fun confirm(reply:String) {
+        val value=JSONObject(reply)
+        if(value.opt("version")!=1) throw IOException("Invalid report protocol")
+        if(value.opt("ok")!=true) {
+            when(value.optString("error")) {
+                "quota_exceeded","busy","unavailable","email_failed" -> throw ReportServiceUnavailable()
+                else -> throw IOException("Report rejected")
+            }
+        }
+    }
+    fun send(context:Context,reason:String,response:String,diagnostics:String?) {
+        require(configured) {context.uiString(R.string.report_not_configured)}
+        confirm(AiReportTransport.submit(BuildConfig.REPORT_ENDPOINT,payload(reason,response,diagnostics)))
+        // No archive, prompt, persistent identifier or background retry is sent.
     }
 }
+
+internal class ReportServiceUnavailable : IOException("Report service unavailable")

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Informativa privacy di SuperMens, l’archivio Android con IA sul dispositivo.">
+  <title>SuperMens · Informativa privacy</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.65; }
+    body { margin: 0; background: #f5f7fa; color: #162231; }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 24px 64px; }
+    header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+    header img { width: 64px; height: 64px; }
+    header strong { font-size: 1.6rem; }
+    h1 { font-size: 2rem; line-height: 1.2; } h2 { margin-top: 32px; font-size: 1.25rem; }
+    a { color: #096b87; text-underline-offset: 3px; } .muted { color: #526373; }
+    footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccd4dd; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #101923; color: #e6edf5; } a { color: #82d9ed; } .muted { color: #b1bdca; }
+      footer { border-color: #34404c; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header><img src="assets/supermens-icon.svg" alt=""><strong>SuperMens</strong></header>
+  <h1>Informativa sulla privacy</h1>
+  <p><a href="privacy.html" lang="en">Read in English</a></p>
+  <p class="muted">Ultimo aggiornamento: 31 ottobre 2026 · Sviluppatore: BBNSS<br>Applicazione Google Play: <code>com.bbnss.SuperMens</code></p>
+
+  <p>SuperMens è un’app Android per salvare contenuti ed elaborarli con IA sul dispositivo. BBNSS non gestisce un backend per il tuo archivio. L’app non richiede un account SuperMens e non carica il tuo archivio presso BBNSS.</p>
+
+  <h2>Contenuti conservati sul dispositivo</h2>
+  <p>SuperMens accede ai contenuti che scegli di creare, importare o condividere: note, link, documenti, foto, audio e video. Conserva testo estratto, anteprime, allegati mantenuti, riassunti, domande e risposte, insieme ai riferimenti alle fonti e alle informazioni di elaborazione. Questi dati servono a organizzare, cercare ed elaborare l’archivio.</p>
+  <p>Riassunti, risposte e descrizioni delle immagini sono generati localmente. Anche OCR ed elaborazione vocale avvengono sul dispositivo. BBNSS non gestisce un endpoint di inferenza IA remota.</p>
+
+  <h2>Connessioni Internet e fornitori</h2>
+  <p>Il salvataggio di contenuti online invia richieste ai siti di origine e ai fornitori multimediali per ottenere testo, sottotitoli e anteprime. Questi fornitori possono ricevere URL o identificativo richiesto, indirizzo IP e normali metadati della richiesta. Il download del modello IA contatta Hugging Face e la sua infrastruttura di distribuzione. Se configuri il fallback Invidious facoltativo, l’istanza scelta riceve le richieste dei sottotitoli, compresi identificativo del video e indirizzo IP. Questi fornitori trattano le richieste secondo le proprie informative.</p>
+  <p>SuperMens utilizza Google ML Kit per OCR e riconoscimento vocale supportato. Google dichiara che i contenuti in ingresso e i risultati dell’elaborazione rimangono sul dispositivo. L’SDK può contattare Google per aggiornamenti e inviare informazioni diagnostiche e di utilizzo, inclusi dettagli di dispositivo e app, identificatori, prestazioni, configurazione, dimensioni di ingresso/uscita, eventi, errori e lingue vocali configurate. Questi dati supportano diagnostica, manutenzione e analisi di utilizzo. Consulta <a href="https://developers.google.com/ml-kit/terms">Termini e privacy ML Kit</a>, <a href="https://developers.google.com/ml-kit/android-data-disclosure">dichiarazioni sui dati dell’SDK Google</a> e <a href="https://policies.google.com/privacy">Informativa sulla privacy Google</a>.</p>
+  <p>BBNSS non ha aggiunto pubblicità, tracciamento pubblicitario o una dashboard di analisi. Restano applicabili le dichiarazioni sugli SDK Google sopra riportate.</p>
+
+  <h2>Autorizzazioni</h2>
+  <p>L’accesso al microfono è richiesto per registrazioni vocali e dettatura. Le notifiche mostrano download e avanzamento dell’elaborazione. L’accesso ai file usa il selettore documenti Android e i permessi per i file che scegli. Le foto vengono scattate tramite l’app fotocamera selezionata. L’accesso Internet recupera fonti online, modelli e risorse SDK. Puoi gestire i permessi nelle impostazioni Android; disabilitarli può limitare le relative funzioni.</p>
+
+  <h2>Condivisione ed esportazioni</h2>
+  <p>Copiare testo, condividere un post o esportare un backup avviene su tua richiesta. Il contenuto viene passato all’app o alla destinazione scelta, che può includere un fornitore cloud. Si applicano quindi le sue pratiche sulla privacy. Backup e file condivisi possono contenere i dati salvati e non vengono automaticamente cifrati con password da SuperMens.</p>
+
+  <h2>Segnalazioni facoltative delle risposte IA</h2>
+  <p>Quando un servizio di segnalazione è configurato nella tua build, puoi segnalare una risposta IA senza uscire dall’app. Puoi modificare la risposta selezionata per rimuovere informazioni private, scegliere un motivo e vedere l’anteprima della diagnostica tecnica facoltativa. Consenso e diagnostica iniziano deselezionati. Solo dopo il tuo consenso esplicito e l’azione Invia, la risposta modificata, il motivo, la versione dell’app e l’eventuale diagnostica scelta vengono trasmessi via HTTPS tramite Google Apps Script a BBNSS all’indirizzo <a href="mailto:lumieitalia@gmail.com">lumieitalia@gmail.com</a>. Prompt originale, archivio, registrazioni, URL dei documenti e identificatori persistenti del dispositivo non vengono allegati separatamente. I dati presenti nella risposta selezionata vengono inclusi se non li rimuovi. Gli invii falliti o non confermati non vengono ritentati automaticamente; un timeout non dimostra che la segnalazione non sia arrivata. Le build senza endpoint configurato disabilitano l’invio.</p>
+  <p>BBNSS esamina le segnalazioni per la sicurezza dell’IA e il miglioramento del prodotto. Le segnalazioni non sono pubblicate come issue pubbliche né usate per inferenza remota. Google tratta il contenuto inviato per eseguire Apps Script e consegnare e conservare le email; può inoltre trattare metadati di connessione e servizio secondo la <a href="https://policies.google.com/privacy">propria informativa</a>. Lo script usa MailApp solo per inviare email, senza permessi di lettura della posta, non registra il contenuto delle segnalazioni nei log e non lo conserva in un database separato. Conserva soltanto contatore della quota e inizio della finestra temporale, senza identificativo del segnalante.</p>
+  <p>Le segnalazioni vengono conservate per <strong>massimo 30 giorni</strong>. Il titolare elimina manualmente entro tale termine tutte le copie email sotto il proprio controllo, incluse Posta in arrivo, Archivio, Inviati, Spam, eventuali esportazioni o backup controllati, ed elimina definitivamente quelle segnalazioni dal Cestino entro la stessa scadenza. Il solo spostamento nel Cestino non completa la cancellazione. Lo script non può eliminare automaticamente la posta. Google controlla la conservazione dei propri registri e delle copie infrastrutturali secondo le proprie politiche.</p>
+  <p>La diagnostica facoltativa contiene app/codice versione, produttore, modello/SoC, versione Android, RAM totale/disponibile, nome/stato del modello IA, backend, disponibilità della visione, tempi di elaborazione, numero di caratteri in uscita, stato termico e indicatori di errore del servizio foreground e di certificazione. Non contiene documenti salvati o identificatori persistenti del dispositivo. L’app invia la stessa diagnostica mostrata nell’anteprima. Puoi anche visualizzare e condividere separatamente la diagnostica su tua richiesta. Questo percorso non aggiunge raccolta automatica delle prestazioni o trasmissione in background.</p>
+
+  <h2>Conservazione, cancellazione e sicurezza</h2>
+  <p>L’archivio rimane sul dispositivo finché non elimini i contenuti o rimuovi i dati dell’app. Puoi cancellare singoli post in SuperMens, cancellare lo spazio di archiviazione dell’app o disinstallarla per rimuovere i dati di sua proprietà. Puoi rimuovere separatamente i pesi del modello dalle Impostazioni senza cancellare l’archivio. File originali, backup esportati, appunti e copie condivise altrove devono essere gestiti separatamente. BBNSS non può accedere al tuo archivio locale né eliminarlo da remoto.</p>
+  <p>Le protezioni dello spazio di archiviazione Android limitano l’accesso ai dati dell’app. SuperMens non fornisce una cifratura separata dell’archivio. Proteggi il dispositivo e conserva le esportazioni con cura. I fornitori terzi controllano la conservazione dei propri log di richiesta e della diagnostica SDK secondo le proprie politiche.</p>
+
+  <h2>Contatti e modifiche</h2>
+  <p>Per privacy, assistenza o cancellazione di segnalazioni, contatta BBNSS a <a href="mailto:lumieitalia@gmail.com">lumieitalia@gmail.com</a>. Fornisci solo i dettagli minimi necessari per individuare la segnalazione; evita di reinviare contenuti sensibili. L’APK della beta3 sperimentale pubblicato su GitHub non ha un endpoint configurato. Le build successive con endpoint configurato possono inviare segnalazioni tramite il servizio Google verificato, come descritto sopra. Per domande sulla beta prive di dati sensibili puoi usare anche le <a href="https://github.com/bbnss/SuperMens/issues/new">issue di SuperMens</a>. Le issue sono pubbliche: non includere documenti personali, registrazioni, credenziali o altri dati sensibili.</p>
+  <p>Questa informativa può essere aggiornata con l’evoluzione dell’app. La data sopra indica l’ultima revisione.</p>
+
+  <footer><a href="https://github.com/bbnss/SuperMens">SuperMens su GitHub</a><p class="muted">Questa pagina è ospitata su GitHub Pages. GitHub può trattare informazioni sulle richieste dei visitatori secondo la <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">propria informativa</a>. La pagina non aggiunge script di analisi, pubblicità o font esterni.</p></footer>
+</main>
+</body>
+</html>

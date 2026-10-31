@@ -1,4 +1,13 @@
-# SuperMens 0.3.0-beta3: Play readiness and test protocol
+# SuperMens: Play internal candidate 0.3.0 (15) and beta4
+
+The owner chose a personal Play internal test before production on October 30,
+2026. The unsigned release candidate is `com.bbnss.SuperMens`, version `0.3.0`,
+code `15`. The separate GitHub beta remains `it.supermens.offline.beta`,
+`0.3.0-beta4`, code `14`; debug remains `it.supermens.offline`. The release
+variant override preserves the beta's existing identity and data. Internal
+upload is authorized after the owner's separate upload-key signing and artifact
+checks; production remains conditional on the owner's test and the remaining
+production gates below. No Play upload has been performed at preparation time.
 
 This branch prepares a controlled beta. It is **not a hardware certification or approval to publish to production**. The runtime remains LiteRT-LM 0.11.0 with the pinned Gemma 4 E2B weights, Android 15+, ARM64. NPU execution and a smaller model remain separate investigations.
 
@@ -21,34 +30,21 @@ This branch prepares a controlled beta. It is **not a hardware certification or 
 - AI disclosure, editable report preview and explicit consent are available for generated summaries, image descriptions, chat/translation replies and document answers. Diagnostics are optional and contain no archive/prompt/URL/serial/Android ID.
 - Free chat includes safety instructions and a small EN/IT guard for explicit requests. This is **not comprehensive moderation**; adversarial/multilingual evaluation remains a production gate.
 
-## Reporting service and privacy: required deployment work
+## Reporting service and privacy: deployment and Android submission verified
 
-`tools/report_service.py` is a private WSGI receiver for `POST /reports`. Accepted requests return HTTP 201 only after a successful SQLite commit. Payload: `version: 1`, `reason` (`child_safety`, `harmful`, `deceptive`, `other`), selected `response` (up to 16 KB UTF-8), `app_version`, optional allowlisted `diagnostics`. Prompts, URLs and arbitrary diagnostic keys are rejected. Maximum request body is 32 KiB. Nothing is automatically transmitted by the Android app.
+The reporting receiver is now Google Apps Script (`tools/apps-script/Code.gs`), using MailApp to send plain-text reports only to **lumieitalia@gmail.com**, with no inbox access or paid hosting. It replaces the WSGI/SQLite prototype. Payload fields stay the same, with a 16,000-byte UTF-8 selected-response limit and 32,768-byte request limit, strict field/type validation, optional diagnostics and explicit consent. No automatic submission, retry or new performance collection is added; free chat stays available.
 
-Run under a dedicated account with a persistent private database, behind an HTTPS reverse proxy. The included single-process development entry point binds only to localhost:
+The service reserves at most 80 email attempts per 24-hour window under a persistent, locked counter and checks the remaining Google quota before sending. Android confirms only `{"version":1,"ok":true}` after MailApp accepts the send; HTTP 200 alone is insufficient. ContentService redirects are fetched with GET only at the expected HTTPS Google content host. Timeouts show “submission not confirmed”.
 
-```sh
-python3 tools/report_service.py --database /var/lib/supermens-reports/reports.sqlite3
-```
+Follow [the complete deployment, retention and validation procedure](REPORTING_APPS_SCRIPT.md). On October 29 the owner supplied the anonymous `/exec` deployment. A GET returned the expected JSON without login; a single synthetic POST returned `ok:true` after the Google content redirect, and the owner confirmed its arrival at the destination. Public `reporting.properties` now contains that verified endpoint and privacy contact. The local beta4 candidate is version code 14; the published beta3 APK remains disconnected. A second synthetic report **from the actual Android dialog** received a positive service reply; the owner also confirmed its mailbox receipt, completing the real app delivery check for this candidate. All 8 report Android tests, 89 JVM tests and beta build/lint checks pass; details are recorded in [BETA_VALIDATION.md](BETA_VALIDATION.md).
 
-For production use a WSGI server with request timeouts and bounded workers. Configure the proxy for body-size limits, connection timeouts and public-IP rate limits. The app service keeps an additional volatile limit of 60 requests per peer/hour. Behind a proxy this may be a shared limit; it deliberately does not trust arbitrary forwarded headers. Disable access-body logging and redact/minimize proxy access logs. The database is created mode 0600. Store it on encrypted storage, restrict operators and exclude it from public backups.
+Reports are retained for at most 30 days. The owner must manually and permanently delete all controlled email copies, including Trash, within that period; MailApp cannot do this automatically. Updated [English](privacy.html) and [Italian](privacy-it.html) privacy pages identify the recipient and Google processing and must be published before enabling reports for users.
 
-Reports expire after 30 days at startup and on each accepted submission. Schedule daily cleanup as well (SQLite: `DELETE FROM reports WHERE created < unixepoch()-2592000;`). Apply the same policy to backups. Review `child_safety` reports promptly and other reports regularly; record the disposition and resulting filter/test changes. Do not publish report text as a GitHub issue. Report content itself may be sensitive; only authorized reviewers should open the private database. This service does not send emails or expose a public report-reading API.
-
-Set these build variables once the receiver and private contact are real:
-
-```sh
-export SUPERMENS_REPORT_ENDPOINT=https://YOUR-HOST/reports
-export SUPERMENS_PRIVACY_EMAIL=YOUR-PRIVATE-CONTACT
-```
-
-The endpoint is public configuration, never an embedded credential. Builds with no endpoint show that reporting is unavailable and cannot send. The GitHub experimental beta explicitly documents that limitation. Configure and verify the service before distributing beyond internal testing on Play. Set `SUPERMENS_PUBLIC_RELEASE=true` for an official public release: Gradle rejects missing endpoint/contact. This guard does not prove service health or policy compliance.
-
-Publish the updated privacy page with actual contact and report-hosting information before enabling reports for users. Populate Play Data safety using the exact resolved ML Kit SDKs and the report path; do not claim no data collection merely because inference is local. Evaluate applicable EU transparency requirements and machine-readable output marking separately; visible labels alone are not a legal certification. Source: [ML Kit disclosure](https://developers.google.com/ml-kit/android-data-disclosure), [Play AI content policy](https://support.google.com/googleplay/android-developer/answer/13985936?hl=en).
+Set `SUPERMENS_PUBLIC_RELEASE=true` for an official public release: Gradle rejects a missing endpoint. This guard does not prove service health or policy compliance. Populate Play Data safety using the exact resolved ML Kit SDKs and this email report path. Sources: [ML Kit disclosure](https://developers.google.com/ml-kit/android-data-disclosure), [Play AI content policy](https://support.google.com/googleplay/android-developer/answer/13985936?hl=en).
 
 ## Build and automated verification
 
-Use JDK 17/21, SDK 36 and the committed Gradle wrapper. Compile release artifacts without production signing credentials; official signing happens separately in the maintainer's terminal. For private testing, `assembleBeta` creates an optimized APK with the standard debug signature under the separate package `it.supermens.offline.beta` (SuperMens Beta). The regular installed app is preserved; the beta needs its own model and an optional archive import. See DEVELOPMENT.md.
+Use JDK 17/21, SDK 36 and the committed Gradle wrapper. Compile release artifacts without production signing credentials; official AAB signing happens separately in the maintainer's terminal. `bundleRelease` produces the unsigned Play candidate for `com.bbnss.SuperMens`. For private GitHub testing, `assembleBeta` still creates an optimized APK with the standard debug signature under the separate package `it.supermens.offline.beta` (SuperMens Beta). These packages have separate archives and model files. See DEVELOPMENT.md.
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease
@@ -57,11 +53,11 @@ Use JDK 17/21, SDK 36 and the committed Gradle wrapper. Compile release artifact
 ./gradlew :app:assembleBeta :app:lintBeta
 python3 tools/verify_native_callbacks.py app/build/outputs/apk/beta/app-beta.apk \
   --dexdump "$ANDROID_HOME/build-tools/36.0.0/dexdump"
-python3 -m unittest discover -s tools -p test_report_service.py -v
+node --test --test-isolation=none tools/apps-script/report_service.test.cjs
 python3 tools/publication_audit.py
 ```
 
-Inspect the AAB with bundletool, generate APKs and verify both ZIP and native ELF 16 KB alignment. Install the Play-delivered release, not only a debug APK. Verify an update from 0.2.8 preserves archive, charging preference and model without a new download. Change EN/IT offline after a Play install. Exercise TalkBack, large font, edge-to-edge, denied microphone/notification permissions, system camera and third-party document providers.
+Inspect the AAB with bundletool, generate APKs and verify both ZIP and native ELF 16 KB alignment. Install the Play-delivered release, not only a debug APK. The new Play package coexists with earlier `.offline` and `.beta` installations; copy an archive using ZIP export/import and separately import/download the model. Do not promise an in-place update from those other packages. Once Play has an installed version, test subsequent same-package updates for data/model retention. Change EN/IT offline after a Play install. Exercise TalkBack, large font, edge-to-edge, denied microphone/notification permissions, system camera and third-party document providers.
 
 Implementation-session validation is in `BETA_VALIDATION.md`; historical 0.2.8 test results are not new results for this branch.
 
@@ -91,7 +87,7 @@ Initial product targets: warm short question <=30 seconds, standard note summary
 
 ## Console and public-release gates
 
-1. Confirm `it.supermens.offline`, resolve the retired app-signing certificate and configure Play App Signing. Version code is now 13. Do not substitute the shared upload key for the app-signing identity of an existing installation. Reserve the final public name only after checking app-store and relevant trademark conflicts.
+1. Live Reporting/Publisher API reads confirmed `com.bbnss.SuperMens` on October 30. The release is code 15; the separate beta remains code 14. Configure/verify this app's Play App Signing and shared upload key separately. No distribution certificate has been inferred from the earlier `.offline` APK or from another app. Reserve the final public name only after checking app-store and relevant trademark conflicts.
 2. Distribute to 5–10 internal testers, then approximately 20–30 closed testers for two weeks. Internal testers bypass device exclusion rules. Give reviewers download/setup instructions and a synthetic sample; a crawler spending a few minutes before weights are ready does not test inference.
 3. Complete listing assets, content rating, audience, privacy/Data safety, app access and foreground-service declarations. Avoid claims of Google affiliation, universal NPU support or zero network transmission.
 4. Close remaining report-service, safety and device-measurement gates. Verify public privacy/contact URLs from independent networks. Keep the first release restricted to actually qualified devices using catalog exclusions/RAM/SoC rules, reviewing real variants and newly added models. Do not infer a universal allowlist from the manifest.

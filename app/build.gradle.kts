@@ -1,4 +1,5 @@
 import java.net.URI
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -13,8 +14,8 @@ android {
         applicationId = "it.supermens.offline"
         minSdk = 35
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.3.0-beta3"
+        versionCode = 14
+        versionName = "0.3.0-beta4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -24,14 +25,19 @@ android {
     // Keep both languages available when users change the app language offline.
     bundle { language { enableSplit = false } }
     defaultConfig {
-        val reportEndpoint = providers.environmentVariable("SUPERMENS_REPORT_ENDPOINT").orElse("").get()
+        val reporting = Properties().apply {rootProject.file("reporting.properties").inputStream().use {load(it)}}
+        val reportEndpoint = providers.environmentVariable("SUPERMENS_REPORT_ENDPOINT")
+            .orElse(reporting.getProperty("reportEndpoint", "")).get()
         if(reportEndpoint.isNotEmpty()) {
             val uri=URI(reportEndpoint)
-            require(uri.scheme=="https" && !uri.host.isNullOrBlank() && uri.rawUserInfo==null && uri.rawQuery==null && uri.rawFragment==null && reportEndpoint.none {it=='"' || it=='\\' || it.isWhitespace()})
+            require(uri.scheme=="https" && uri.host=="script.google.com" && uri.port==-1 && uri.rawUserInfo==null && uri.rawQuery==null && uri.rawFragment==null && uri.rawPath.matches(Regex("/macros/s/[A-Za-z0-9_-]+/exec"))) {
+                "Reporting requires an HTTPS Apps Script /macros/s/DEPLOYMENT_ID/exec URL"
+            }
         }
         buildConfigField("String", "REPORT_ENDPOINT", "\"$reportEndpoint\"")
-        val privacyEmail=providers.environmentVariable("SUPERMENS_PRIVACY_EMAIL").orElse("").get()
-        require(privacyEmail.isEmpty() || privacyEmail.matches(Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")))
+        val privacyEmail=providers.environmentVariable("SUPERMENS_PRIVACY_EMAIL")
+            .orElse(reporting.getProperty("privacyEmail", "")).get()
+        require(privacyEmail=="lumieitalia@gmail.com") {"Privacy contact must match the published reporting contact"}
         buildConfigField("String", "PRIVACY_EMAIL", "\"$privacyEmail\"")
         if(providers.environmentVariable("SUPERMENS_PUBLIC_RELEASE").orElse("false").get()=="true") {
             require(reportEndpoint.isNotEmpty() && privacyEmail.isNotEmpty()) {"Public releases require the report endpoint and a private privacy contact"}
@@ -49,6 +55,18 @@ android {
             applicationIdSuffix = ".beta"
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
+        }
+    }
+}
+
+// The Play app has its own verified identity. Keep debug and the installed
+// GitHub beta on their existing package/version so their archives are preserved.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.applicationId.set("com.bbnss.SuperMens")
+        variant.outputs.forEach { output ->
+            output.versionCode.set(15)
+            output.versionName.set("0.3.0")
         }
     }
 }

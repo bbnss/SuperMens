@@ -370,7 +370,7 @@
     <string name="ai_generated">Contenuto generato da IA</string>
     <string name="ai_preview">Risposta IA in corso — non ancora salvata</string>
     <string name="report_response">Segnala risposta IA</string>
-    <string name="report_explanation">Verrà inviata allo sviluppatore solo la risposta mostrata qui sotto. Rimuovi i passaggi privati. La domanda e il tuo archivio non vengono inviati. I dettagli tecnici sono facoltativi.</string>
+    <string name="report_explanation">La risposta modificata, il motivo e la versione dell’app saranno inviati tramite Google Apps Script a lumieitalia@gmail.com e conservati per massimo 30 giorni. Rimuovi i passaggi privati. La domanda e il tuo archivio non vengono allegati. La diagnostica è facoltativa.</string>
     <string name="report_not_configured">Le segnalazioni non sono collegate in questa beta. Non verrà inviato nulla. Il servizio deve essere attivato prima del rilascio pubblico.</string>
     <string name="report_child">Tutela dei minori</string>
     <string name="report_harmful">Contenuto dannoso o offensivo</string>
@@ -379,8 +379,10 @@
     <string name="report_preview">Risposta da inviare (modificabile, fino a 16 KB)</string>
     <string name="report_diagnostics">Includi diagnostica tecnica</string>
     <string name="report_consent">Acconsento a inviare il contenuto visualizzato allo sviluppatore per la verifica.</string>
-    <string name="report_send_failed">Invio non riuscito. Controlla la connessione e riprova.</string>
-    <string name="report_sent">Segnalazione ricevuta. Grazie.</string>
+    <string name="report_send_failed">Impossibile confermare l’invio. Controlla la connessione prima di riprovare.</string>
+    <string name="report_send_unconfirmed">Invio non confermato: tempo di attesa scaduto. La segnalazione potrebbe essere arrivata; riprovando potresti inviare un duplicato.</string>
+    <string name="report_service_unavailable">Il servizio non può accettare la segnalazione adesso. Riprova più tardi.</string>
+    <string name="report_sent">Segnalazione inviata. Grazie.</string>
     <string name="ai_refusal">Non posso aiutare con questa richiesta. Posso aiutarti con un argomento sicuro o con i tuoi documenti.</string>
     <string name="privacy_contact">Contatto privacy privato</string>
 </resources>

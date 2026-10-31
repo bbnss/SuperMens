@@ -10,12 +10,13 @@ An AI-powered personal knowledge archive for Android,<br>
 with a local LLM and on-device processing.
 
 [![License: GPL v3 + exception](https://img.shields.io/badge/License-GPLv3%20%2B%20exception-blue)](LICENSE_EXCEPTION.md)
-![Status: Beta preparation](https://img.shields.io/badge/Status-Beta_preparation-orange)
+![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-blue)
 ![Android 15+](https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white)
 ![ARM64](https://img.shields.io/badge/Architecture-ARM64-64748B)
 ![On-device AI](https://img.shields.io/badge/AI-On--device-38BDF8)
 
-[**Download the beta APK**](https://github.com/bbnss/SuperMens/releases/download/v0.3.0-beta3/SuperMens-Beta.apk)
+[**Download the official APK**](https://github.com/bbnss/SuperMens/releases/download/v0.3.0/SuperMens.apk)
+· [Google Play](https://play.google.com/store/apps/details?id=com.bbnss.SuperMens)
 · [Privacy policy](https://bbnss.github.io/SuperMens/privacy.html)
 · [Report an issue](https://github.com/bbnss/SuperMens/issues)
 · [SuperBrain inspiration](https://github.com/sidinsearch/superbrain)
@@ -30,9 +31,11 @@ SuperMens brings the save-and-understand idea of tools like [SuperBrain](https:/
 
 AI inference runs locally using **Gemma 4 E2B through LiteRT-LM**. No remote inference backend, app account or AI API key is required. An optional, explicitly submitted content report contacts the developer reporting service.
 
-**0.3.0-beta3 is an experimental device-testing build.** New installations process content on battery immediately; **Process only while charging** is optional and existing settings are preserved. This beta also fixes native streaming callbacks being removed by release optimization, shows the installed app version in Settings and uses a tightly cropped brain status icon. The maintainer reports that beta2 works on their phone; broader hardware compatibility and performance remain to be measured. See the [beta release checklist](docs/PLAY_BETA.md).
+**The current release is SuperMens 0.3.0 (15)**, package `com.bbnss.SuperMens`. The GitHub APK is the universal APK generated and signed by Google Play from the same version 15 app bundle used on Play. It uses the same app-signing certificate as Play installations, so installations from either channel can update one another when Android accepts the version and signing lineage. See [release provenance](docs/RELEASE_PROVENANCE.md) for hashes and source verification.
 
-The downloadable APK installs as **SuperMens Beta** (`it.supermens.offline.beta`), alongside the regular app, using the standard Android debug certificate for testing. Its archive and model are separate. Official production signing and Play distribution remain separate steps. The report-sending service is not connected in this build; no report is transmitted.
+The earlier `it.supermens.offline` app and `it.supermens.offline.beta` experimental beta have different package names. They remain separate installations. Export an archive from the earlier app and import it into SuperMens to migrate data; models must be imported or downloaded separately.
+
+Voluntary AI response reports use the configured Google Apps Script email receiver. Consent and optional diagnostics start unchecked; review and edit the response before sending. See the [reporting and 30-day deletion procedure](docs/REPORTING_APPS_SCRIPT.md).
 
 ## What you can save
 
@@ -70,12 +73,12 @@ Shared PDFs carry the project URL in every page footer; image/text shares carry 
 
 ## Get started
 
-1. Download and install the [beta APK](https://github.com/bbnss/SuperMens/releases/download/v0.3.0-beta3/SuperMens-Beta.apk). It appears as **SuperMens Beta** and updates earlier installations of the separate beta app without uninstalling them.
+1. Install SuperMens from [Google Play](https://play.google.com/store/apps/details?id=com.bbnss.SuperMens) or download the [official APK](https://github.com/bbnss/SuperMens/releases/download/v0.3.0/SuperMens.apk). Both channels use package `com.bbnss.SuperMens` and the same Google app-signing certificate.
 2. Use the home banner to download **Gemma 4 E2B**. On Wi-Fi the download starts immediately; on mobile/metered data choose whether to download now or wait for Wi-Fi. You can also import the supported `.litertlm` file in **Settings**.
 3. Use **Test model** to check local inference, then save something through Android sharing or the **+** menu.
 4. Open its card to read, copy, share or ask a question.
 
-Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source and enable prereleases for beta updates. Choose the `SuperMens-Beta.apk` asset. This is a separate installation from older `SuperMens.apk` releases.
+Obtainium: add `https://github.com/bbnss/SuperMens` as a GitHub source and choose `SuperMens.apk` from the stable release. Prereleases with `SuperMens-Beta.apk` refer to the separate historical beta package.
 
 The model is downloaded separately and occupies approximately [2.6 GB](https://developers.google.com/edge/litert-lm/models/gemma-4). Allow 6–8 GB free for working space; each model download/import requires the incoming model plus at least 512 MiB free. Existing weights are retained during import verification. You can remove weights in Settings without deleting your archive. The supported model revision and import details are in the [developer notes](docs/DEVELOPMENT.md).
 
@@ -86,7 +89,7 @@ The model is downloaded separately and occupies approximately [2.6 GB](https://d
 - **8 GB RAM or more recommended**, with additional memory providing headroom.
 - Compatible GPU support for AI image descriptions; GPU text-only and CPU fallback modes have visible limitations. NPU hardware alone does not guarantee compatibility. Settings provides a technical preview that you may share without content or persistent identifiers.
 
-To copy data from the regular app, export its archive and import it in **SuperMens Beta**. Import the original model file or download weights in the beta as well. You can keep the regular app installed. Existing separate beta installations retain their archive, model and preferences during an update.
+To copy data from an earlier package, export its archive and import it into the current **SuperMens** app. Import the original model file or download weights again. Keep the earlier app installed until you have checked the imported archive.
 
 ## Privacy and offline use
 
@@ -96,7 +99,7 @@ Internet is needed to download the model and acquire online sources. Once the re
 
 ML Kit may contact Google for updates and send technical usage and performance metrics. According to [Google’s ML Kit privacy documentation](https://developers.google.com/ml-kit/terms), input content and processing results are not sent to Google. The optional Invidious caption fallback contacts the instance you configure.
 
-## Beta limitations
+## Limitations
 
 AI output may contain mistakes. Check important details against the source. Chat replies stream provisionally; **Stop processing** requests cancellation and **Retry** resumes saved checkpoints. Report a generated response through its editable, consent-based report dialog when the reporting service is configured.
 
@@ -118,7 +121,7 @@ Requires JDK 17, Android SDK 36 and the included Gradle wrapper.
 
 For private device testing, run `./gradlew :app:assembleBeta`. This creates **SuperMens Beta** (`it.supermens.offline.beta`) with release optimization and the standard Android debug signature. It installs alongside the regular app, with a separate archive and model. Import an exported ZIP and import/download the model if needed. Future beta APKs signed with the same debug certificate update this separate installation.
 
-Release APK/AAB builds are unsigned; official signing happens separately in the maintainer's terminal. See the [signing workflow](docs/DEVELOPMENT.md#release-signing).
+The release variant builds package `com.bbnss.SuperMens`, version `0.3.0` (15): run `./gradlew :app:bundleRelease` to produce an unsigned AAB. Upload signing happens separately in the maintainer's terminal. GitHub distributes the APK generated and signed by Google Play, not an APK signed with the upload key. See the [signing workflow](docs/DEVELOPMENT.md#release-signing).
 
 Built with Kotlin, Jetpack Compose, SQLite, WorkManager, LiteRT-LM and ML Kit. YouTube captions use direct retrieval with an optional Invidious fallback. Third-party components and model weights retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

@@ -1,4 +1,4 @@
-## Current beta preparation: 0.3.0-beta3
+## Current Play candidate: 0.3.0 (15); separate beta4 (14)
 
 See [PLAY_BETA.md](PLAY_BETA.md) for current behavior, configuration, release gates and the physical-device protocol. The notes below describe earlier releases and historical validation. In particular, automatic charging-only processing defaults off for new installs, GPU text-only is attempted before CPU, inference uses cooperative streaming cancellation, and active branding is the walnut/brain vector. Saved charging preferences are preserved on updates.
 
@@ -8,10 +8,10 @@ See [PLAY_BETA.md](PLAY_BETA.md) for current behavior, configuration, release ga
 
 This project contains the local Android app only, with no backend module.
 
-- Application ID: `it.supermens.offline`.
+- Application IDs: release `com.bbnss.SuperMens`; debug `it.supermens.offline`; beta `it.supermens.offline.beta`.
 - Minimum SDK: 35 (Android 15); compile and target SDK: 36.
 - Packaged architecture: `arm64-v8a`.
-- Current source: `0.3.0-beta3`, version code `13`.
+- Release: `0.3.0`, version code `15`, prepared for the owner's Play internal test. Debug and the separate beta remain `0.3.0-beta4`, code `14`.
 - Toolchain: JDK 17 or later, Android SDK 36 and the included Gradle wrapper.
 
 Configure `JAVA_HOME` and `ANDROID_HOME` for your machine, or use Android Studio. Never commit `local.properties`.

@@ -1,5 +1,61 @@
 # Validation of 0.3.0 beta preparation
 
+## Play internal candidate 0.3.0 / version code 15 — 2026-10-30
+
+- The owner chose a personal internal-track Play test before production. The
+  release variant now uses the API-verified `com.bbnss.SuperMens` identity,
+  version `0.3.0`, code `15`. The generated manifest and BuildConfig agree.
+  `assembleBeta` still produces `it.supermens.offline.beta`, beta4/code 14;
+  debug remains `.offline`. No existing package is renamed or uninstalled.
+- A fresh Publisher preflight found no visible consumed version codes, including
+  15. This is not a guarantee about codes no longer visible through edits.
+- JVM: 89 passed. Apps Script: 7 passed. Publication-audit regressions: 7 passed.
+  The local separate-terminal signing helper has 7 passing preparation checks;
+  those tests never access a real private key or sign an artifact.
+- Debug/release lint: zero errors, 118/117 warnings. Release APK/AAB, beta APK
+  and debug Android-test APK compile successfully without production credentials.
+- The optimized release APK preserves both native callback contracts and their
+  implementations. All six ARM64 libraries have compatible ELF PT_LOAD alignment
+  in both APK and AAB. The APK passes the ZIP 16 KiB check. Bundletool validates
+  the unsigned AAB; its native-library configuration requests 16 KiB alignment.
+  A universal APK generated from this AAB also passes ZIP alignment; that local
+  packaging probe has a test signature and is not a distribution artifact.
+- The working-tree/release-APK publication audit has no findings with exact
+  exceptions for the documented public support address and synthetic fixtures.
+- The Android regression suite was compiled but could not run in this session:
+  the existing API 36 x86_64 verification emulator exited 139 before ADB became
+  available. No physical device is connected. These checks do not certify native
+  inference quality, device performance or Play delivery; the owner will exercise
+  those using the internal Play build.
+- The candidate is unsigned. The owner signs with `bbnss-upload` in a separate
+  terminal, then the exact signed artifact requires upload-certificate registration
+  verification and the shared artifact guard. No Play upload or production rollout
+  has been performed at preparation time. ML Kit GenAI production terms, privacy
+  publication/Data safety, store assets and actual device-catalog targeting remain
+  production gates; the current functional paths are retained for the personal test.
+
+## 0.3.0-beta4 / version code 14 — reporting activation, 2026-10-29
+
+- The owner supplied the deployed Apps Script `/exec` URL. An anonymous GET followed the expected HTTPS Google content redirect and returned the versioned `method_not_allowed` JSON. One synthetic POST without diagnostics returned `{"version":1,"ok":true}`. The owner confirmed receipt at `lumieitalia@gmail.com` for marker `SM-REPORT-20261029-163040Z`.
+- Inserted the verified public endpoint in `reporting.properties` and advanced the local candidate to version 0.3.0-beta4 / code 14. The published beta3 download is unchanged. Updated deployment, privacy EN/IT and plan wording to distinguish that earlier APK from the new configured build.
+- Added `LiveAiReportTest`, which is skipped unless explicitly enabled with instrumentation argument `liveReport=true`. It uses the actual sender and editable dialog, selects consent, omits diagnostics and sends one synthetic report without retry. It does not read email. Normal Android regression runs cannot automatically send this probe. A separate instrumentation run without `liveReport` returned the expected assumption-skip before submitting, in 0.119 seconds.
+- **89 JVM tests pass** with the configured endpoint. `assembleBeta` and `lintBeta` succeed; beta lint has **zero errors and 118 warnings**. The standard experimental debug certificate matches beta3; no production signing key or Play credential is supplied.
+- **All 8 report Android tests pass** on API 36 x86_64 in 18.832 seconds: the seven consent/preview/diagnostic/error regressions plus one explicitly enabled real submission through the dialog and `AiReport.send()`. The actual app confirmed the positive JSON reply for `SM-APP-20261029-164722Z`, using version beta4, the edited synthetic response and no diagnostics. The owner also confirmed receipt of this second probe at lumieitalia@gmail.com. The real Android submission and mailbox-delivery check are complete for this candidate. This run uses a separate debug emulator build; it is not native inference or a physical-device beta benchmark.
+- The final optimized ARM64 beta APK passes the shared artifact guard against the experimental identity, signature verification, package/version/non-debuggable checks, JNI callback verification, 16 KiB ZIP alignment and ELF alignment of all six native libraries. The verified endpoint is present in its DEX. The local installable copy is ignored under `apk/SuperMens-0.3.0-beta4.apk`, with matching `.apk.sha256` and `.verification.json` files.
+- SHA-256 of the beta APK: `1c9a77db8820ff694a98da85e4e0e6212e19619978ded2d92c6971845ea210ed`. Certificate SHA-256: `DB:32:F5:EC:E2:55:41:42:D9:89:01:62:D1:A9:7A:76:34:8C:5F:15:60:50:60:B5:2C:AF:FE:F5:AB:A4:93:37`. No GitHub/Pages/Play publication was performed. Updated EN/IT privacy pages must be published before distribution beyond this maintainer test.
+
+
+## Email reporting integration — 2026-10-29 (source preparation only)
+
+- Replaced the WSGI/SQLite report prototype with `tools/apps-script/Code.gs` and an explicit send-mail-only manifest. Recipient and subject are fixed; strict validation enforces the existing 16,000-byte text limit and 32,768-byte request limit, including UTF-8 and JSON escaping. A persistent script-wide lock/counter caps reservations at 80 per 24-hour window and checks Google's remaining quota. Mail failures consume a reservation and never return success.
+- Android performs one POST and follows ContentService redirects with GET only at the expected HTTPS Google content host/path. Confirmation requires positive versioned JSON. Timeout, service rejection and other failures have distinct UI handling; no automatic retry is added. Diagnostics and consent default off; submitted diagnostics match the preview exactly. Free chat is unchanged.
+- **7 Apps Script service tests pass**, running the actual script with mocked Google services using Node 24 (`node --test --test-isolation=none tools/apps-script/report_service.test.cjs`). Covered valid submissions, fixed plain-text email headers, omitted/included diagnostics, unexpected fields/types, exact UTF-8/body limits, quota/window exhaustion/reset, Google quota exhaustion, busy lock, email/storage failures, no logging and manifest scopes. These are simulated service tests, not Google delivery checks.
+- **89 JVM tests pass** through `:app:testDebugUnitTest`, including all 7 new transport tests. Covered endpoint validation, single POST and GET redirects without body replay, disallowed hosts/schemes/ports/paths/login redirects, POST-preserving redirects, redirect loops, HTTP/MIME errors, oversized replies, request limit, offline errors and timeouts without retry. Zero JVM failures/errors.
+- **All 7 `AiReportUiTest` Android tests pass** on an API 36 x86_64 emulator (`am instrument`, 14.696 seconds). Covered initially unchecked consent/diagnostics, only edited text submitted, diagnostics matching the preview exactly, timeout/offline/service errors without retry or success feedback, missing endpoint and positive JSON/payload byte rules. The test setup grants the app's notification permission and waits for the dialog composition before asserting UI state.
+- The initial environment restrictions were resolved on retry. Full Gradle `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleDebug :app:assembleDebugAndroidTest` succeeds. Debug lint has **zero errors and 118 warnings**. ARM64 debug APK/AAB and the Android test APK build successfully with the standard debug signing configuration; no production key or Play credential is supplied. These artifacts are for testing, not Play release candidates.
+- UI execution used a separate temporary x86_64 build directory and init script; production ABI/output settings remain ARM64. The emulator ran read-only without snapshots, with host graphics and Vulkan disabled after software-rendering launches crashed. No native inference, physical-device certification or broader Android regression-suite success is claimed. Current EN/IT resource keys and reciprocal privacy-page links validate; `git diff --check` passes.
+- Updated the preparation plan, EN/IT privacy and [deployment/deletion procedure](REPORTING_APPS_SCRIPT.md). Public `reporting.properties` sets the contact to `lumieitalia@gmail.com`; the endpoint remains empty until the owner deploys and verifies the service. No Google deployment, email delivery, privacy publication, production signing or Play upload was performed. Before the Play build, a synthetic report sent **from the app** must be confirmed in the destination inbox. The earlier beta artifact results below do not validate these source changes.
+
 ## 0.3.0-beta3 / version code 13 — 2026-10-29
 
 - New installs now default to processing on battery. The preference fallback is also false before initialization; updates preserve either saved charging-only choice. Removed the obsolete installation-age policy and its JVM test, and updated the existing Android preference regression to cover the missing preference, initialization, both saved choices and an existing archive. The Android test APK compiles; this session does not claim an instrumentation run.
